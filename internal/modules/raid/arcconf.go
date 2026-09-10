@@ -136,8 +136,8 @@ func parseArcconf(data []byte, controllerID string) (vendorInventory, error) {
 				location := strings.Split(value, "(")[0]
 				parts := strings.Split(location, ",")
 				if len(parts) == 2 {
-					disk.Enclosure, disk.Slot = strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
-					disk.ID = disk.Enclosure + ":" + disk.Slot
+					// Channel/device identifies a disk, not its physical enclosure/bay.
+					disk.ID = strings.TrimSpace(parts[0]) + ":" + strings.TrimSpace(parts[1])
 				}
 			case "reported location":
 				if match := arcLocation.FindStringSubmatch(value); len(match) == 3 {

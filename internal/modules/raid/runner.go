@@ -19,7 +19,7 @@ func (r *Runner) Execute(ctx context.Context, op v1alpha1.Operation) (core.RunOu
 		return r.initialize(op)
 	case capabilityDoctor:
 		return r.doctor()
-	case capabilityStatus, capabilityControllers, capabilityVolumes, capabilityDisks:
+	case capabilityOverview, capabilityStatus, capabilityControllers, capabilityVolumes, capabilityDisks:
 		inventory, warnings := r.inventory(ctx)
 		return r.inventoryOutput(op.Capability, inventory, warnings)
 	default:
@@ -49,7 +49,16 @@ func (r *Runner) initialize(op v1alpha1.Operation) (core.RunOutput, error) {
 		}
 	}
 	if explicitPath != "" && backend == "" {
-		return core.RunOutput{}, apperror.New(v1alpha1.ErrorInvalidArgument, "--path requires --backend")
+		for _, def := range toolDefinitions {
+			for _, name := range def.Names {
+				if strings.EqualFold(filepath.Base(explicitPath), name) {
+					backend = def.Backend
+				}
+			}
+		}
+		if backend == "" {
+			return core.RunOutput{}, apperror.New(v1alpha1.ErrorInvalidArgument, "cannot identify tool filename; specify --backend storcli, perccli, ssacli, or arcconf")
+		}
 	}
 	if backend != "" {
 		if _, ok := definition(backend); !ok {
@@ -140,13 +149,13 @@ func (r *Runner) doctor() (core.RunOutput, error) {
 					check.Scope = "auto"
 				}
 				if path == "" {
-					check.Status, check.Message, check.Suggestion = "tool-missing", "matching vendor tool is not installed or executable", fmt.Sprintf("install %s, then run toolctl init raid --backend %s", controller.Backend, controller.Backend)
+					check.Status, check.Message, check.Suggestion = "tool-missing", "matching vendor tool is not installed or executable", fmt.Sprintf("install %s for %s then run toolctl raid; for a custom path use toolctl raid setup --backend %s --path /path/to/tool", controller.Backend, r.deps.Architecture, controller.Backend)
 				} else if !architectureCompatible(path, r.deps.Architecture) {
 					check.Status, check.Available, check.Message, check.Suggestion = "unsupported-arch", false, "matching vendor tool is not compatible with this architecture", fmt.Sprintf("install an %s build of %s", r.deps.Architecture, controller.Backend)
 				} else if registered {
 					check.Status, check.Message = "ready", "matching vendor tool is registered and executable"
 				} else {
-					check.Status, check.Message, check.Suggestion = "unregistered", "matching vendor tool is installed but not registered", fmt.Sprintf("run toolctl init raid --backend %s --path %s", controller.Backend, path)
+					check.Status, check.Message = "ready", "matching vendor tool is automatically available; no setup required"
 				}
 			}
 			checks = append(checks, check)
@@ -266,6 +275,8 @@ func (r *Runner) inventoryOutput(capability string, inventory vendorInventory, w
 		return err
 	}
 	switch capability {
+	case capabilityOverview:
+		return overviewOutput(inventory, warnings)
 	case capabilityControllers:
 		for _, controller := range inventory.Controllers {
 			if err := appendItem("RAIDController", controller.ID, controller); err != nil {
@@ -279,7 +290,10 @@ func (r *Runner) inventoryOutput(capability string, inventory vendorInventory, w
 			}
 		}
 	case capabilityDisks:
-		for _, disk := range inventory.Disks {
+		disks := append([]Disk(nil), inventory.Disks...)
+		sort.SliceStable(disks, func(i, j int) bool { return diskLess(disks[i], disks[j]) })
+		for _, disk := range disks {
+			disk.Status = physicalDiskStatus(disk)
 			if err := appendItem("RAIDPhysicalDisk", disk.ID, disk); err != nil {
 				return core.RunOutput{}, err
 			}

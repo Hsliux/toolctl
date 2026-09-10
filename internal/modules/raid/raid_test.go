@@ -103,7 +103,7 @@ func TestDoctorReportsInstalledUnregisteredTool(t *testing.T) {
 	if err := json.Unmarshal(output.Items[0].Data, &check); err != nil {
 		t.Fatal(err)
 	}
-	if check.Status != "unregistered" || !check.Available || check.Registered {
+	if check.Status != "ready" || !check.Available || check.Registered {
 		t.Fatalf("check = %#v", check)
 	}
 	if check.Scope != "auto" || check.ConfigPath != "" {

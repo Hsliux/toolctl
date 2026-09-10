@@ -406,6 +406,17 @@ toolctl perf history tcp retrans --range 6h -i 15m
 
 RAID 使用统一数据模型，并按控制器选择 backend。v1 支持无外部依赖的 Linux MD，以及 `storcli`、`perccli`、`ssacli` 和 `arcconf`。所有 RAID 查询均为只读。
 
+### `toolctl raid`
+
+直接显示总体健康、清单完整性和逐盘槽位、磁盘 ID、online/failed/rebuilding 等状态。
+
+```bash
+toolctl raid
+toolctl raid -o json
+```
+
+自动使用已登记工具、PATH 或厂商常见安装目录中的匹配工具，无需先执行 setup/init。`raid doctor` 中自动发现的可用工具显示 `ready`、`REGISTERED=false`、`SCOPE=auto`，这属于正常状态。未找到工具时，安装对应架构的厂商工具后重新查询即可；特殊路径才需要 `raid setup`。Linux MD 无需外部程序；物理槽位清单取决于硬件 RAID 工具提供的数据。
+
 ### `toolctl raid doctor`
 
 通过 sysfs PCI class、vendor 和 subsystem vendor 识别 RAID/SAS 控制器，判断匹配工具是否存在、可执行和已经登记。
@@ -459,9 +470,30 @@ toolctl raid disks -o json
 
 这是定位“哪个槽位的哪块盘异常”的主要入口。可见字段取决于厂商工具能提供的清单。
 
-### `toolctl init raid`
+默认表格直接显示 `CONTROLLER / ENCLOSURE / SLOT / DISK ID / STATUS / RAW STATE`，按控制器和槽位数字排序（0、1、2、…、10）。例如以下为示意数据：
+
+```text
+CONTROLLER  ENCLOSURE  SLOT  DISK ID  STATUS      RAW STATE
+0           252        0     10       online      Onln
+0           252        1     11       failed      Failed
+0           252        2     12       rebuilding  Rbld
+```
+
+`STATUS` 区分 online、failed、offline、missing、rebuilding、hotspare、global-hotspare、dedicated-hotspare、unconfigured-good、unconfigured-bad 和 jbod；无法识别时保留 unknown，结合 `RAW STATE` 核对。JSON 保留原有 `state` 健康字段并新增 `status` 物理盘状态。`-o wide` 可核对序列号和 backend。槽位缺失显示 `-`，不会把通道/设备号伪装成物理槽位；槽位编号沿用厂商报告，不做加一转换。
+
+### `toolctl raid setup`（兼容 `toolctl init raid`）
 
 登记本机已经安装的 RAID 管理工具。该命令只保存可执行文件路径，不复制、不下载工具；登记后 RAID 命令和 `doctor -o wide` 会显示其配置来源，后续无需每次指定路径。
+
+推荐自定义路径使用：
+
+```bash
+toolctl raid setup --path /opt/MegaRAID/storcli/storcli64
+toolctl raid setup --backend storcli --path /custom/raid-tool
+toolctl raid
+```
+
+常见文件名自动识别 backend，自定义名称需显式指定。setup 只登记配置，不初始化磁盘或创建阵列。以下旧命令仍兼容，日常无需执行：
 
 ```bash
 # 自动发现并登记所有支持的工具
