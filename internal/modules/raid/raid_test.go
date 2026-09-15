@@ -168,6 +168,85 @@ func TestInitReferencesExistingLocalTool(t *testing.T) {
 	}
 }
 
+func TestMegaCLIBackendAliasAndFilename(t *testing.T) {
+	definition, ok := definition("MegaCli64")
+	if !ok || definition.Backend != "megacli" {
+		t.Fatalf("definition = %#v, ok = %v", definition, ok)
+	}
+	found := false
+	for _, name := range definition.Names {
+		if name == "MegaCli64" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("MegaCli64 is not a recognized filename: %#v", definition.Names)
+	}
+}
+
+func TestInitAutoDetectsMegaCLI64(t *testing.T) {
+	temporary := t.TempDir()
+	binary := filepath.Join(temporary, "MegaCli64")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runner := &Runner{deps: core.Dependencies{Files: newFakeFS(), Processes: fakeProcesses{paths: map[string]string{}}, ConfigDirectory: filepath.Join(temporary, "config")}}
+	pathValue, _ := json.Marshal(binary)
+	output, err := runner.Execute(context.Background(), v1alpha1.Operation{Capability: capabilityInit, Options: map[string]json.RawMessage{"path": pathValue}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Items) != 1 || loadTools(runner.deps.ConfigDirectory)["megacli"] != binary {
+		t.Fatalf("output = %#v, configured = %#v", output.Items, loadTools(runner.deps.ConfigDirectory))
+	}
+}
+
+func TestParseMegaCLIInventory(t *testing.T) {
+	inventory := newVendorInventory()
+	if err := parseMegaCLIAdapters([]byte(`Adapter #0
+Product Name    : MegaRAID SAS 9271-8i
+Serial No       : SV123456
+FW Package Build: 23.34.0-0019
+`), &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if err := parseMegaCLIVolumes([]byte(`Adapter 0 -- Virtual Drive Information:
+Virtual Drive: 0 (Target Id: 0)
+Name                : system
+RAID Level          : Primary-1, Secondary-0, RAID Level Qualifier-0
+Size                : 1.818 TB
+State               : Optimal
+`), &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if err := parseMegaCLIDisks([]byte(`Adapter #0
+Enclosure Device ID: 252
+Slot Number: 3
+Device Id: 11
+PD Type: SAS
+Raw Size: 1.819 TB [0xe8e088b0 Sectors]
+Firmware state: Online, Spun Up
+Inquiry Data: EXAMPLE-DISK
+Media Type: Hard Disk Device
+Drive Temperature : 31C (87.80 F)
+Predictive Failure Count: 0
+`), &inventory); err != nil {
+		t.Fatal(err)
+	}
+	if len(inventory.Controllers) != 1 || inventory.Controllers[0].Model != "MegaRAID SAS 9271-8i" || inventory.Controllers[0].Serial != "SV123456" {
+		t.Fatalf("controllers = %#v", inventory.Controllers)
+	}
+	if len(inventory.Volumes) != 1 || inventory.Volumes[0].RAIDLevel != "RAID 1" || inventory.Volumes[0].State != HealthOptimal {
+		t.Fatalf("volumes = %#v", inventory.Volumes)
+	}
+	if len(inventory.Disks) != 1 || inventory.Disks[0].Enclosure != "252" || inventory.Disks[0].Slot != "3" || inventory.Disks[0].ID != "11" || inventory.Disks[0].State != HealthOptimal || physicalDiskStatus(inventory.Disks[0]) != "online" {
+		t.Fatalf("disks = %#v", inventory.Disks)
+	}
+	if inventory.Disks[0].TemperatureC == nil || inventory.Disks[0].PredictiveFailure == nil || *inventory.Disks[0].PredictiveFailure {
+		t.Fatalf("disk details = %#v", inventory.Disks[0])
+	}
+}
+
 func TestParseStorCLIInventory(t *testing.T) {
 	fixture := []byte(`{
   "Controllers": [{

@@ -102,9 +102,10 @@ func TestShortHostCommandBuildsStableCapability(t *testing.T) {
 
 func TestUnknownOutputIsArgumentError(t *testing.T) {
 	capability := v1alpha1.Capability{ID: "system.host.info", Command: v1alpha1.CommandPathSpec{Path: []string{"host"}}}
+	var stdout, stderr bytes.Buffer
 	command, err := New(BuildInfo{}, []v1alpha1.Capability{capability}, fixedID("op-fixed"), func(context.Context, v1alpha1.Operation, render.Options) (int, error) {
 		return 0, nil
-	}, &bytes.Buffer{}, &bytes.Buffer{})
+	}, &stdout, &stderr)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,6 +113,51 @@ func TestUnknownOutputIsArgumentError(t *testing.T) {
 	_, err = command.Execute(context.Background())
 	if err == nil {
 		t.Fatal("expected output format error")
+	}
+	if !ErrorReported(err) || !strings.Contains(stderr.String(), "Usage:\n  toolctl host") {
+		t.Fatalf("argument error did not show host help:\n%s", stderr.String())
+	}
+}
+
+func TestUnknownCommandShowsContextualHelp(t *testing.T) {
+	capabilities := []v1alpha1.Capability{
+		{ID: "raid.status", Command: v1alpha1.CommandPathSpec{Path: []string{"raid", "status"}}},
+		{ID: "raid.disks", Command: v1alpha1.CommandPathSpec{Path: []string{"raid", "disks"}}},
+	}
+	var stdout, stderr bytes.Buffer
+	command, err := New(BuildInfo{}, capabilities, fixedID("op-fixed"), func(context.Context, v1alpha1.Operation, render.Options) (int, error) {
+		return 0, nil
+	}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command.SetArgs([]string{"raid", "wrong"})
+	_, err = command.Execute(context.Background())
+	if err == nil || !ErrorReported(err) {
+		t.Fatalf("expected a reported argument error, got %v", err)
+	}
+	help := stderr.String()
+	if !strings.Contains(help, `unknown command "wrong" for "toolctl raid"`) || !strings.Contains(help, "Usage:\n  toolctl raid") || !strings.Contains(help, "Available Commands:") {
+		t.Fatalf("unknown command did not show raid help:\n%s", help)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("error help unexpectedly written to stdout:\n%s", stdout.String())
+	}
+}
+
+func TestUnknownFlagShowsLeafHelp(t *testing.T) {
+	capability := v1alpha1.Capability{ID: "raid.status", Command: v1alpha1.CommandPathSpec{Path: []string{"raid", "status"}}}
+	var stdout, stderr bytes.Buffer
+	command, err := New(BuildInfo{}, []v1alpha1.Capability{capability}, fixedID("op-fixed"), func(context.Context, v1alpha1.Operation, render.Options) (int, error) {
+		return 0, nil
+	}, &stdout, &stderr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command.SetArgs([]string{"raid", "status", "--wrong"})
+	_, err = command.Execute(context.Background())
+	if err == nil || !strings.Contains(stderr.String(), "Usage:\n  toolctl raid status") {
+		t.Fatalf("unknown flag did not show leaf help:\n%s", stderr.String())
 	}
 }
 

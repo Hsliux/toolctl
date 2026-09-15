@@ -126,7 +126,9 @@ func (a *App) Run(ctx context.Context) int {
 	if err == nil {
 		return exitCode
 	}
-	_, _ = fmt.Fprintf(a.stderr, "error: %s\n", err)
+	if !cli.ErrorReported(err) {
+		_, _ = fmt.Fprintf(a.stderr, "error: %s\n", err)
+	}
 	switch apperror.Code(err) {
 	case v1alpha1.ErrorInvalidArgument, v1alpha1.ErrorConfig:
 		return 2

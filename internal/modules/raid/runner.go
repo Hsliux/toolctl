@@ -36,7 +36,7 @@ func (r *Runner) initialize(op v1alpha1.Operation) (core.RunOutput, error) {
 	if err != nil {
 		return core.RunOutput{}, err
 	}
-	backend = strings.ToLower(strings.TrimSpace(backend))
+	backend = canonicalBackend(backend)
 	system, err := boolOption(op, "system")
 	if err != nil {
 		return core.RunOutput{}, err
@@ -57,7 +57,7 @@ func (r *Runner) initialize(op v1alpha1.Operation) (core.RunOutput, error) {
 			}
 		}
 		if backend == "" {
-			return core.RunOutput{}, apperror.New(v1alpha1.ErrorInvalidArgument, "cannot identify tool filename; specify --backend storcli, perccli, ssacli, or arcconf")
+			return core.RunOutput{}, apperror.New(v1alpha1.ErrorInvalidArgument, "cannot identify tool filename; specify --backend storcli, megacli, perccli, ssacli, or arcconf")
 		}
 	}
 	if backend != "" {
@@ -140,16 +140,16 @@ func (r *Runner) doctor() (core.RunOutput, error) {
 			if controller.Backend == "unknown" {
 				check.Status, check.Message, check.Suggestion = "unsupported", "RAID controller detected but its vendor is not recognized", "add a backend adapter for this PCI controller"
 			} else {
-				path, registered := discoverTool(r.deps.Processes, controller.Backend, configured)
-				check.Tool, check.ToolPath, check.Registered, check.Available = controller.Backend, path, registered, path != ""
+				selected, path, registered := discoverBackendTool(r.deps.Processes, controller.Backend, configured)
+				check.Backend, check.Tool, check.ToolPath, check.Registered, check.Available = selected, selected, path, registered, path != ""
 				if registered {
-					source := sources[controller.Backend]
+					source := sources[selected]
 					check.Scope, check.ConfigPath = source.Scope, source.ConfigPath
 				} else if path != "" {
 					check.Scope = "auto"
 				}
 				if path == "" {
-					check.Status, check.Message, check.Suggestion = "tool-missing", "matching vendor tool is not installed or executable", fmt.Sprintf("install %s for %s then run toolctl raid; for a custom path use toolctl raid setup --backend %s --path /path/to/tool", controller.Backend, r.deps.Architecture, controller.Backend)
+					check.Status, check.Message, check.Suggestion = "tool-missing", "matching vendor tool is not installed or executable", fmt.Sprintf("install %s for %s then run toolctl raid; for a custom path use toolctl raid setup --backend %s --path /path/to/tool", selected, r.deps.Architecture, selected)
 				} else if !architectureCompatible(path, r.deps.Architecture) {
 					check.Status, check.Available, check.Message, check.Suggestion = "unsupported-arch", false, "matching vendor tool is not compatible with this architecture", fmt.Sprintf("install an %s build of %s", r.deps.Architecture, controller.Backend)
 				} else if registered {
@@ -203,7 +203,7 @@ func (r *Runner) inventory(ctx context.Context) (vendorInventory, []v1alpha1.Dia
 		if backend == "unknown" || backend == "mdraid" {
 			continue
 		}
-		path, _ := discoverTool(r.deps.Processes, backend, configured)
+		selected, path, _ := discoverBackendTool(r.deps.Processes, backend, configured)
 		if path == "" {
 			inventory.Incomplete[backend] = "management tool is unavailable"
 			warnings = append(warnings, diagnostic("RAID_TOOL_MISSING", fmt.Sprintf("%s controller detected but its management tool is unavailable", backend), map[string]string{"backend": backend, "suggestion": "run toolctl raid doctor"}))
@@ -216,9 +216,11 @@ func (r *Runner) inventory(ctx context.Context) (vendorInventory, []v1alpha1.Dia
 		}
 		var vendor vendorInventory
 		var err error
-		switch backend {
+		switch selected {
 		case "perccli", "storcli":
-			vendor, err = runStorCLI(ctx, r.deps, backend, path)
+			vendor, err = runStorCLI(ctx, r.deps, selected, path)
+		case "megacli":
+			vendor, err = runMegaCLI(ctx, r.deps, path)
 		case "ssacli":
 			vendor, err = runSSACLI(ctx, r.deps, path)
 		case "arcconf":
@@ -228,7 +230,7 @@ func (r *Runner) inventory(ctx context.Context) (vendorInventory, []v1alpha1.Dia
 		}
 		if err != nil {
 			inventory.Incomplete[backend] = err.Error()
-			warnings = append(warnings, diagnostic("RAID_BACKEND_FAILED", err.Error(), map[string]string{"backend": backend, "path": path}))
+			warnings = append(warnings, diagnostic("RAID_BACKEND_FAILED", err.Error(), map[string]string{"backend": selected, "path": path}))
 			continue
 		}
 		inventory.Controllers = replaceBackendControllers(inventory.Controllers, backend, vendor.Controllers)

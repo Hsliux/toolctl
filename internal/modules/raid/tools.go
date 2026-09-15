@@ -21,6 +21,7 @@ type toolDefinition struct {
 var toolDefinitions = []toolDefinition{
 	{Backend: "perccli", Names: []string{"perccli64", "perccli"}, Paths: []string{"/opt/MegaRAID/perccli/perccli64", "/opt/MegaRAID/perccli/perccli"}},
 	{Backend: "storcli", Names: []string{"storcli64", "storcli2", "storcli"}, Paths: []string{"/opt/MegaRAID/storcli/storcli64", "/opt/MegaRAID/storcli/storcli", "/opt/MegaRAID/storcli2/storcli2"}},
+	{Backend: "megacli", Names: []string{"MegaCli64", "MegaCli", "megacli64", "megacli"}, Paths: []string{"/opt/MegaRAID/MegaCli/MegaCli64", "/opt/MegaRAID/MegaCli/MegaCli", "/usr/sbin/MegaCli64", "/usr/sbin/megacli"}},
 	{Backend: "ssacli", Names: []string{"ssacli", "hpssacli"}, Paths: []string{"/usr/sbin/ssacli", "/usr/sbin/hpssacli"}},
 	{Backend: "arcconf", Names: []string{"arcconf"}, Paths: []string{"/usr/Arcconf/arcconf", "/usr/sbin/arcconf"}},
 }
@@ -42,13 +43,46 @@ type toolSource struct {
 }
 
 func definition(backend string) (toolDefinition, bool) {
-	backend = strings.ToLower(strings.TrimSpace(backend))
+	backend = canonicalBackend(backend)
 	for _, item := range toolDefinitions {
 		if item.Backend == backend {
 			return item, true
 		}
 	}
 	return toolDefinition{}, false
+}
+
+func canonicalBackend(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "megacli64", "megacli":
+		return "megacli"
+	default:
+		return value
+	}
+}
+
+// Broadcom/LSI controllers support StorCLI on newer systems and MegaCLI on
+// older systems. Keep PCI classification stable while allowing the installed
+// management tool to select the actual adapter.
+func discoverBackendTool(processes core.ProcessExecutor, backend string, registered map[string]string) (selected, path string, isRegistered bool) {
+	candidates := []string{backend}
+	if backend == "storcli" {
+		candidates = append(candidates, "megacli")
+	}
+	// An explicitly registered fallback is preferred over an automatically
+	// discovered tool so setup has deterministic effect.
+	for _, candidate := range candidates {
+		if configured := registered[candidate]; configured != "" && executable(configured) {
+			return candidate, configured, true
+		}
+	}
+	for _, candidate := range candidates {
+		if path, _ = discoverTool(processes, candidate, map[string]string{}); path != "" {
+			return candidate, path, false
+		}
+	}
+	return backend, "", false
 }
 
 func configPath(directory string) string {
@@ -93,8 +127,9 @@ func loadToolSources(locations ...toolConfigLocation) map[string]toolSource {
 			continue
 		}
 		for _, item := range config.Tools {
-			if _, ok := definition(item.Backend); ok && filepath.IsAbs(item.Path) {
-				result[item.Backend] = toolSource{Path: item.Path, Scope: location.Scope, ConfigPath: path}
+			backend := canonicalBackend(item.Backend)
+			if _, ok := definition(backend); ok && filepath.IsAbs(item.Path) {
+				result[backend] = toolSource{Path: item.Path, Scope: location.Scope, ConfigPath: path}
 			}
 		}
 	}

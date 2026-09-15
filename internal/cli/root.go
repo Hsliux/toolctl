@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -73,6 +74,18 @@ type CLI struct {
 	stderr    io.Writer
 }
 
+type reportedError struct{ cause error }
+
+func (e *reportedError) Error() string { return e.cause.Error() }
+func (e *reportedError) Unwrap() error { return e.cause }
+
+// ErrorReported reports whether the CLI already printed the error together
+// with contextual help. Callers should not print the same error again.
+func ErrorReported(err error) bool {
+	var reported *reportedError
+	return errors.As(err, &reported)
+}
+
 func New(info BuildInfo, capabilities []v1alpha1.Capability, ids core.IDGenerator, execute ExecuteFunc, stdout, stderr io.Writer) (*CLI, error) {
 	cli := &CLI{ids: ids, execute: execute, stdout: stdout, stderr: stderr, exitCode: 0}
 	root := &cobra.Command{
@@ -123,13 +136,39 @@ network diagnostics, with optional integrations for databases, RAID, fio and ssa
 			command.GroupID = groupOther
 		}
 	}
+	enableParentHelpFallback(root)
 	return cli, nil
 }
 
+func enableParentHelpFallback(command *cobra.Command) {
+	for _, child := range command.Commands() {
+		enableParentHelpFallback(child)
+	}
+	if command.Parent() == nil || command.Runnable() || !command.HasSubCommands() {
+		return
+	}
+	command.RunE = func(cmd *cobra.Command, args []string) error {
+		if len(args) > 0 {
+			return fmt.Errorf("unknown command %q for %q", args[0], cmd.CommandPath())
+		}
+		return cmd.Help()
+	}
+}
+
 func (c *CLI) Execute(ctx context.Context) (int, error) {
-	err := c.root.ExecuteContext(ctx)
+	command, err := c.root.ExecuteContextC(ctx)
 	if err != nil && !apperror.Is(err) {
 		err = apperror.Wrap(v1alpha1.ErrorInvalidArgument, err.Error(), err)
+	}
+	if err != nil && apperror.Code(err) == v1alpha1.ErrorInvalidArgument {
+		if command == nil {
+			command = c.root
+		}
+		_, _ = fmt.Fprintf(c.stderr, "error: %s\n\n", err)
+		command.SetOut(c.stderr)
+		_ = command.Help()
+		command.SetOut(c.stdout)
+		return c.exitCode, &reportedError{cause: err}
 	}
 	return c.exitCode, err
 }

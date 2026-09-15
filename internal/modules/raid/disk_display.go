@@ -7,7 +7,11 @@ import (
 
 // Physical role and readiness are separate from the aggregate health model.
 func physicalDiskStatus(d Disk) string {
-	switch strings.ToLower(strings.TrimSpace(d.VendorState)) {
+	state := strings.ToLower(strings.TrimSpace(d.VendorState))
+	if prefix, _, ok := strings.Cut(state, ","); ok {
+		state = strings.TrimSpace(prefix)
+	}
+	switch state {
 	case "onln", "online", "ok", "optimal", "opt", "active":
 		return "online"
 	case "ugood", "unconfigured good", "ready", "rdy":

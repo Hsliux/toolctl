@@ -125,7 +125,7 @@ toolctl raid status -o yaml --timeout 1m
 | --- | --- | --- |
 | `fio` | `bench disk`、`bench device` | 仅磁盘压测必需 |
 | `smartctl` / `nvme` | `disk health` 深度 SMART/NVMe 数据 | 可选，基础 sysfs 检查仍可用 |
-| `storcli` / `perccli` / `ssacli` / `arcconf` | 对应厂商硬件 RAID 查询 | 对相应控制器必需 |
+| `storcli` / `megacli` / `perccli` / `ssacli` / `arcconf` | 对应厂商硬件 RAID 查询 | 对相应控制器必需 |
 | `ssh` | `batch ssh` | 必需 |
 | `nsenter` | `batch containers` | 必需 |
 | `ssar` + sresar 历史数据 | `perf history ...` | 仅历史查询必需 |
@@ -404,7 +404,7 @@ toolctl perf history tcp retrans --range 6h -i 15m
 
 ## RAID
 
-RAID 使用统一数据模型，并按控制器选择 backend。v1 支持无外部依赖的 Linux MD，以及 `storcli`、`perccli`、`ssacli` 和 `arcconf`。所有 RAID 查询均为只读。
+RAID 使用统一数据模型，并按控制器选择 backend。v1 支持无外部依赖的 Linux MD，以及 `storcli`、`megacli`、`perccli`、`ssacli` 和 `arcconf`。Broadcom/LSI 控制器优先使用 StorCLI，未安装时自动回退到旧版 MegaCLI。所有 RAID 查询均为只读。
 
 ### `toolctl raid`
 
@@ -489,11 +489,14 @@ CONTROLLER  ENCLOSURE  SLOT  DISK ID  STATUS      RAW STATE
 
 ```bash
 toolctl raid setup --path /opt/MegaRAID/storcli/storcli64
+toolctl raid setup --path /opt/MegaRAID/MegaCli/MegaCli64
 toolctl raid setup --backend storcli --path /custom/raid-tool
 toolctl raid
 ```
 
 常见文件名自动识别 backend，自定义名称需显式指定。setup 只登记配置，不初始化磁盘或创建阵列。以下旧命令仍兼容，日常无需执行：
+
+MegaCLI 的规范 backend 名为 `megacli`，同时兼容 `--backend MegaCli64`。它只在 StorCLI 不可用时作为 Broadcom/LSI 控制器的回退工具。
 
 ```bash
 # 自动发现并登记所有支持的工具

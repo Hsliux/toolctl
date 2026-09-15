@@ -86,7 +86,7 @@ func (*Module) Capabilities() []v1alpha1.Capability {
 			{Header: "ID", Path: "data.id", Type: v1alpha1.ColumnString, Wide: true, Order: 90}, {Header: "BACKEND", Path: "data.backend", Type: v1alpha1.ColumnString, Wide: true, Order: 100},
 		}},
 		{ID: capabilityInit, Domain: "raid", Resource: "configuration", Verb: "init", Command: v1alpha1.CommandPathSpec{Path: []string{"raid", "setup"}, Aliases: [][]string{{"init", "raid"}}}, Summary: "Save an installed tool path (optional; does not initialize RAID arrays)", Mutating: true, Options: []v1alpha1.OptionSpec{
-			{Name: "backend", Type: v1alpha1.OptionString, Description: "Backend to register: storcli, perccli, ssacli, or arcconf"},
+			{Name: "backend", Type: v1alpha1.OptionString, Description: "Backend to register: storcli, megacli, perccli, ssacli, or arcconf"},
 			{Name: "path", Type: v1alpha1.OptionString, Description: "Existing executable path; known filenames auto-select backend"},
 			{Name: "system", Type: v1alpha1.OptionBool, Description: "Register in the system configuration instead of the current user configuration"},
 		}, Columns: []v1alpha1.ColumnHint{
