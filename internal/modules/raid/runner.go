@@ -296,6 +296,7 @@ func (r *Runner) inventoryOutput(capability string, inventory vendorInventory, w
 		sort.SliceStable(disks, func(i, j int) bool { return diskLess(disks[i], disks[j]) })
 		for _, disk := range disks {
 			disk.Status = physicalDiskStatus(disk)
+			disk.Location = physicalDiskLocation(disk)
 			if err := appendItem("RAIDPhysicalDisk", disk.ID, disk); err != nil {
 				return core.RunOutput{}, err
 			}

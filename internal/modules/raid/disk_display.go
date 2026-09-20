@@ -5,6 +5,25 @@ import (
 	"strings"
 )
 
+// physicalDiskLocation identifies a drive within a controller. RAID tools
+// report slots relative to an enclosure, so slot 0 can legitimately occur in
+// more than one enclosure. Keep the vendor values unchanged and combine them
+// instead of presenting the slot as a globally unique chassis bay number.
+func physicalDiskLocation(d Disk) string {
+	enclosure := strings.TrimSpace(d.Enclosure)
+	slot := strings.TrimSpace(d.Slot)
+	switch {
+	case enclosure != "" && slot != "":
+		return enclosure + ":" + slot
+	case slot != "":
+		return slot
+	case enclosure != "":
+		return enclosure + ":?"
+	default:
+		return ""
+	}
+}
+
 // Physical role and readiness are separate from the aggregate health model.
 func physicalDiskStatus(d Disk) string {
 	state := strings.ToLower(strings.TrimSpace(d.VendorState))

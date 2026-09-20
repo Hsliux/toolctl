@@ -40,6 +40,7 @@ type Volume struct {
 type Disk struct {
 	Status            string   `json:"status"`
 	Controller        string   `json:"controller"`
+	Location          string   `json:"location,omitempty"`
 	Enclosure         string   `json:"enclosure,omitempty"`
 	Slot              string   `json:"slot,omitempty"`
 	ID                string   `json:"id"`

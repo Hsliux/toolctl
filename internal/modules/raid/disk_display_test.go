@@ -13,6 +13,23 @@ func TestPhysicalDiskStatus(t *testing.T) {
 	}
 }
 
+func TestPhysicalDiskLocationUsesEnclosureAndVendorSlot(t *testing.T) {
+	tests := []struct {
+		disk Disk
+		want string
+	}{
+		{disk: Disk{Enclosure: "1", Slot: "0", ID: "8"}, want: "1:0"},
+		{disk: Disk{Enclosure: "252", Slot: "0", ID: "0"}, want: "252:0"},
+		{disk: Disk{Slot: "4", ID: "19"}, want: "4"},
+		{disk: Disk{Enclosure: "7", ID: "3"}, want: "7:?"},
+	}
+	for _, test := range tests {
+		if got := physicalDiskLocation(test.disk); got != test.want {
+			t.Fatalf("physicalDiskLocation(%#v) = %q, want %q", test.disk, got, test.want)
+		}
+	}
+}
+
 func TestDiskOutputOrdersSlotsAndPreservesHealth(t *testing.T) {
 	inv := newVendorInventory()
 	for _, slot := range []string{"10", "2", "0"} {

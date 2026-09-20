@@ -460,7 +460,7 @@ toolctl raid volumes -o wide
 
 ### `toolctl raid disks`
 
-列出 RAID 物理盘，重点显示 enclosure、slot、状态、容量、介质类型、接口和型号。
+列出 RAID 物理盘，重点显示控制器内可直接定位的完整槽位、设备 ID、状态、容量和介质类型。`-o wide` 额外显示厂商原始 enclosure、slot、接口、型号和序列号。
 
 ```bash
 toolctl raid disks
@@ -470,16 +470,16 @@ toolctl raid disks -o json
 
 这是定位“哪个槽位的哪块盘异常”的主要入口。可见字段取决于厂商工具能提供的清单。
 
-默认表格直接显示 `CONTROLLER / ENCLOSURE / SLOT / DISK ID / STATUS / RAW STATE`，按控制器和槽位数字排序（0、1、2、…、10）。例如以下为示意数据：
+默认表格直接显示 `CONTROLLER / SLOT / DEVICE ID / STATUS / RAW STATE`。`SLOT` 是可直接用于 RAID 工具定位的 `enclosure:slot` 完整地址，因为原始 slot 是 enclosure 内的相对编号，不是整台服务器上的全局编号；因此不同 enclosure 都可以存在 raw slot 0。结果按控制器、enclosure 和原始 slot 数字排序（0、1、2、…、10）。例如：
 
 ```text
-CONTROLLER  ENCLOSURE  SLOT  DISK ID  STATUS      RAW STATE
-0           252        0     10       online      Onln
-0           252        1     11       failed      Failed
-0           252        2     12       rebuilding  Rbld
+CONTROLLER  SLOT   DEVICE ID  STATUS  RAW STATE
+0           1:0    8          online  Online, Spun Up
+0           252:0  0          online  Online, Spun Up
+0           252:1  14         failed  Failed
 ```
 
-`STATUS` 区分 online、failed、offline、missing、rebuilding、hotspare、global-hotspare、dedicated-hotspare、unconfigured-good、unconfigured-bad 和 jbod；无法识别时保留 unknown，结合 `RAW STATE` 核对。JSON 保留原有 `state` 健康字段并新增 `status` 物理盘状态。`-o wide` 可核对序列号和 backend。槽位缺失显示 `-`，不会把通道/设备号伪装成物理槽位；槽位编号沿用厂商报告，不做加一转换。
+例如故障盘显示 `SLOT=1:2`，表示 enclosure 1、raw slot 2；这个完整值才可以唯一定位磁盘。`DEVICE ID` 是 RAID 控制器分配的设备号，不能当作物理槽位。`STATUS` 区分 online、failed、offline、missing、rebuilding、hotspare、global-hotspare、dedicated-hotspare、unconfigured-good、unconfigured-bad 和 jbod；无法识别时保留 unknown，结合 `RAW STATE` 核对。JSON 保留 `enclosure`、`slot`、`id`、`state`，并提供组合后的 `location` 和标准化后的 `status`。槽位缺失显示 `-`，不会把 Device ID 或通道号伪装成物理槽位；槽位编号沿用厂商原始报告，不擅自执行加一转换。
 
 ### `toolctl raid setup`（兼容 `toolctl init raid`）
 
