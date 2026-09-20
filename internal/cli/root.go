@@ -307,7 +307,19 @@ func configureLeaf(command *cobra.Command, capability v1alpha1.Capability, cli *
 				op.TimeoutMS = 0
 			}
 		}
-		exitCode, err := cli.execute(cmd.Context(), op, render.Options{Format: format, NoHeaders: cli.noHeaders, Columns: capability.Columns})
+		columns := capability.Columns
+		var service bool
+		_ = json.Unmarshal(options["service"], &service)
+		if service && (capability.ID == "raid.overview" || capability.ID == "raid.disk.list") {
+			if format != render.FormatTable && format != render.FormatWide {
+				return apperror.New(v1alpha1.ErrorInvalidArgument, "--service supports table and wide output")
+			}
+			columns = []v1alpha1.ColumnHint{}
+			for i, field := range []string{"host", "controller", "enclosure", "slot", "status", "locate", "handoff"} {
+				columns = append(columns, v1alpha1.ColumnHint{Header: strings.ToUpper(field), Path: "data." + field, Type: v1alpha1.ColumnString, Order: i})
+			}
+		}
+		exitCode, err := cli.execute(cmd.Context(), op, render.Options{Format: format, NoHeaders: cli.noHeaders, Columns: columns})
 		if err == nil {
 			cli.exitCode = exitCode
 		}

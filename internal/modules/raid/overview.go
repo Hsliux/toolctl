@@ -30,8 +30,9 @@ func overviewOutput(inv vendorInventory, warnings []v1alpha1.Diagnostic) (core.R
 	for _, d := range disks {
 		d.Status = physicalDiskStatus(d)
 		d.Location = physicalDiskLocation(d)
+		d.MegaCLIArgs = megaCLISelector(d)
 		item, err := resultbuilder.NewItem("RAIDPhysicalDisk", d.ID, "", map[string]any{
-			"type": "disk", "controller": d.Controller, "location": d.Location, "enclosure": d.Enclosure, "slot": d.Slot, "id": d.ID, "status": d.Status,
+			"type": "disk", "controller": d.Controller, "location": d.Location, "enclosure": d.Enclosure, "slot": d.Slot, "id": d.ID, "status": d.Status, "megacliArgs": d.MegaCLIArgs,
 			"details": fmt.Sprintf("%s; raw=%s; backend=%s", d.Model, d.VendorState, d.Backend), "disk": d,
 		})
 		if err != nil {

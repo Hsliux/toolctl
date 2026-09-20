@@ -28,11 +28,13 @@ func (*Module) Info() v1alpha1.ModuleInfo {
 }
 
 func (*Module) Capabilities() []v1alpha1.Capability {
-	return []v1alpha1.Capability{
+	capabilities := []v1alpha1.Capability{
 		{ID: capabilityOverview, Domain: "raid", Resource: "overview", Verb: "get", Command: v1alpha1.CommandPathSpec{Path: []string{"raid"}}, Summary: "Show RAID summary and physical disks; discovers installed tools automatically", Columns: []v1alpha1.ColumnHint{
 			{Header: "TYPE", Path: "data.type", Type: v1alpha1.ColumnString, Order: 10},
 			{Header: "CONTROLLER", Path: "data.controller", Type: v1alpha1.ColumnString, Order: 20},
-			{Header: "SLOT", Path: "data.location", Type: v1alpha1.ColumnString, Order: 30},
+			{Header: "ENCLOSURE", Path: "data.enclosure", Type: v1alpha1.ColumnString, Order: 25},
+			{Header: "SLOT", Path: "data.slot", Type: v1alpha1.ColumnString, Order: 30},
+			{Header: "MEGACLI ARGS", Path: "data.megacliArgs", Type: v1alpha1.ColumnString, Order: 80},
 			{Header: "DEVICE ID", Path: "data.id", Type: v1alpha1.ColumnString, Order: 50},
 			{Header: "STATUS", Path: "data.status", Type: v1alpha1.ColumnString, Order: 60},
 			{Header: "DETAILS", Path: "data.details", Type: v1alpha1.ColumnString, Order: 70},
@@ -75,11 +77,12 @@ func (*Module) Capabilities() []v1alpha1.Capability {
 			{Header: "DEVICE", Path: "data.devicePath", Type: v1alpha1.ColumnString, Wide: true, Order: 70}, {Header: "BACKEND", Path: "data.backend", Type: v1alpha1.ColumnString, Wide: true, Order: 80},
 		}},
 		{ID: capabilityDisks, Domain: "raid", Resource: "disk", Verb: "list", Command: v1alpha1.CommandPathSpec{Path: []string{"raid", "disks"}}, Summary: "List physical RAID disks", Columns: []v1alpha1.ColumnHint{
-			{Header: "CONTROLLER", Path: "data.controller", Type: v1alpha1.ColumnString, Order: 10}, {Header: "SLOT", Path: "data.location", Type: v1alpha1.ColumnString, Order: 20},
+			{Header: "CONTROLLER", Path: "data.controller", Type: v1alpha1.ColumnString, Order: 10}, {Header: "SLOT", Path: "data.slot", Type: v1alpha1.ColumnString, Order: 20},
+			{Header: "MEGACLI ARGS", Path: "data.megacliArgs", Type: v1alpha1.ColumnString, Order: 110},
 			{Header: "DEVICE ID", Path: "data.id", Type: v1alpha1.ColumnString, Order: 30}, {Header: "STATUS", Path: "data.status", Type: v1alpha1.ColumnString, Order: 40},
 			{Header: "RAW STATE", Path: "data.vendorState", Type: v1alpha1.ColumnString, Order: 45},
 			{Header: "SIZE", Path: "data.sizeBytes", Type: v1alpha1.ColumnBytes, Order: 50}, {Header: "MEDIA", Path: "data.mediaType", Type: v1alpha1.ColumnString, Order: 60},
-			{Header: "ENCLOSURE", Path: "data.enclosure", Type: v1alpha1.ColumnString, Wide: true, Order: 65}, {Header: "RAW SLOT", Path: "data.slot", Type: v1alpha1.ColumnString, Wide: true, Order: 66},
+			{Header: "ENCLOSURE", Path: "data.enclosure", Type: v1alpha1.ColumnString, Order: 15},
 			{Header: "INTERFACE", Path: "data.interface", Type: v1alpha1.ColumnString, Wide: true, Order: 70}, {Header: "MODEL", Path: "data.model", Type: v1alpha1.ColumnString, Wide: true, Order: 80},
 			{Header: "SERIAL", Path: "data.serial", Type: v1alpha1.ColumnString, Wide: true, Order: 85},
 			{Header: "BACKEND", Path: "data.backend", Type: v1alpha1.ColumnString, Wide: true, Order: 100},
@@ -93,6 +96,12 @@ func (*Module) Capabilities() []v1alpha1.Capability {
 			{Header: "SCOPE", Path: "data.scope", Type: v1alpha1.ColumnString, Order: 30}, {Header: "CONFIG", Path: "data.configPath", Type: v1alpha1.ColumnString, Wide: true, Order: 40},
 		}},
 	}
+	for i := range capabilities {
+		if capabilities[i].ID == capabilityOverview || capabilities[i].ID == capabilityDisks {
+			capabilities[i].Options = append(capabilities[i].Options, v1alpha1.OptionSpec{Name: "service", Type: v1alpha1.OptionBool, Description: "Show abnormal disks for onsite staff; blink supported locate LEDs for 10 minutes (foreground)"})
+		}
+	}
+	return capabilities
 }
 
 func (m *Module) NewRunner(deps core.Dependencies) (core.Runner, error) {

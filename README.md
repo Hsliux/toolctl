@@ -470,16 +470,36 @@ toolctl raid disks -o json
 
 这是定位“哪个槽位的哪块盘异常”的主要入口。可见字段取决于厂商工具能提供的清单。
 
-默认表格直接显示 `CONTROLLER / SLOT / DEVICE ID / STATUS / RAW STATE`。`SLOT` 是可直接用于 RAID 工具定位的 `enclosure:slot` 完整地址，因为原始 slot 是 enclosure 内的相对编号，不是整台服务器上的全局编号；因此不同 enclosure 都可以存在 raw slot 0。结果按控制器、enclosure 和原始 slot 数字排序（0、1、2、…、10）。例如：
+默认表格分开显示 `CONTROLLER / ENCLOSURE / SLOT / DEVICE ID`，MegaCLI 后端额外提供可直接复制的 `MEGACLI ARGS`（包含 shell 引号）。结果按控制器、enclosure 和 slot 数字排序。例如以下为节选：
 
 ```text
-CONTROLLER  SLOT   DEVICE ID  STATUS  RAW STATE
-0           1:0    8          online  Online, Spun Up
-0           252:0  0          online  Online, Spun Up
-0           252:1  14         failed  Failed
+CONTROLLER  ENCLOSURE  SLOT  DEVICE ID  STATUS  MEGACLI ARGS
+0           1          0     8          online  -physdrv '[1:0]' -a0
+0           252        0     0          online  -physdrv '[252:0]' -a0
+0           1          2     6          failed  -physdrv '[1:2]' -a0
 ```
 
-例如故障盘显示 `SLOT=1:2`，表示 enclosure 1、raw slot 2；这个完整值才可以唯一定位磁盘。`DEVICE ID` 是 RAID 控制器分配的设备号，不能当作物理槽位。`STATUS` 区分 online、failed、offline、missing、rebuilding、hotspare、global-hotspare、dedicated-hotspare、unconfigured-good、unconfigured-bad 和 jbod；无法识别时保留 unknown，结合 `RAW STATE` 核对。JSON 保留 `enclosure`、`slot`、`id`、`state`，并提供组合后的 `location` 和标准化后的 `status`。槽位缺失显示 `-`，不会把 Device ID 或通道号伪装成物理槽位；槽位编号沿用厂商原始报告，不擅自执行加一转换。
+`SLOT` 沿用厂商原始编号，需与控制器和 enclosure 一起定位，不擅自加一映射成前面板编号。`DEVICE ID` 是控制器设备号。JSON 保留 `enclosure`、`slot`、`id`、`state`、`location` 和 `status`，新增 `megacliArgs`。非 MegaCLI 后端或地址缺失时不生成 MegaCLI 参数。
+
+### 机房交接及定位灯：`--service`
+
+```bash
+toolctl raid disks --service
+# 同样支持
+toolctl raid --service
+```
+
+仅显示 failed、offline、missing、unconfigured-bad、degraded、rebuilding、unknown 及预测故障告警的磁盘。交接字段包含主机、控制器、背板、厂商槽位、状态、型号/Inquiry、可用的序列号与定位灯结果，可复制给机房人员。重建中的盘明确提示勿拔盘；异常清单不代表全部可以直接拔出更换。MegaCLI Inquiry 原文可能包含型号和序列号的混合文本，未取得独立序列号时显示“未提供”。
+
+MegaCLI、StorCLI、PERCCLI 后端使用厂商的 locate 指令点灯，立即展示清单，前台等待 10 分钟后发送关灯指令；Ctrl+C 或 SIGTERM 会提前执行关灯清理。普通查询不操作定位灯。该模式仅支持 table/wide，工具调用单次有超时限制，等待不受普通查询默认 30 秒超时影响。
+
+其他后端、地址缺失或点灯失败时显示 `unavailable` 并报告原因，不能认为灯已亮。关灯失败显示 `stop-failed` 并报错。进程被 SIGKILL、主机断电等情况无法执行清理，必要时手工关灯，例如：
+
+```bash
+/opt/MegaRAID/MegaCli/MegaCli64 -PDLocate -stop -physdrv '[1:2]' -a0
+```
+
+现场实际灯效由背板支持决定；当前不会推测厂商槽位与前面板印刷编号的映射，需结合定位灯核对磁盘。
 
 ### `toolctl raid setup`（兼容 `toolctl init raid`）
 

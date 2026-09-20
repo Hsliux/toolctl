@@ -33,9 +33,9 @@ func physicalDiskStatus(d Disk) string {
 	switch state {
 	case "onln", "online", "ok", "optimal", "opt", "active":
 		return "online"
-	case "ugood", "unconfigured good", "ready", "rdy":
+	case "ugood", "unconfigured good", "unconfigured(good)", "ready", "rdy":
 		return "unconfigured-good"
-	case "ubad", "unconfigured bad":
+	case "ubad", "unconfigured bad", "unconfigured(bad)":
 		return "unconfigured-bad"
 	case "ghs", "global hot spare", "global hotspare":
 		return "global-hotspare"

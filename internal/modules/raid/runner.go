@@ -297,6 +297,7 @@ func (r *Runner) inventoryOutput(capability string, inventory vendorInventory, w
 		for _, disk := range disks {
 			disk.Status = physicalDiskStatus(disk)
 			disk.Location = physicalDiskLocation(disk)
+			disk.MegaCLIArgs = megaCLISelector(disk)
 			if err := appendItem("RAIDPhysicalDisk", disk.ID, disk); err != nil {
 				return core.RunOutput{}, err
 			}

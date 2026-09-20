@@ -38,6 +38,10 @@ type Volume struct {
 }
 
 type Disk struct {
+	MegaCLIArgs       string   `json:"megacliArgs,omitempty"`
+	Host              string   `json:"host,omitempty"`
+	Locate            string   `json:"locate,omitempty"`
+	Handoff           string   `json:"handoff,omitempty"`
 	Status            string   `json:"status"`
 	Controller        string   `json:"controller"`
 	Location          string   `json:"location,omitempty"`

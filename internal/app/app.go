@@ -65,9 +65,9 @@ func New(info cli.BuildInfo, modules []core.Module, stdout, stderr io.Writer) (*
 	}
 	operationExecutor := executor.New(moduleRegistry, clock)
 	command, err := cli.New(info, moduleRegistry.Capabilities(), ids, func(ctx context.Context, op v1alpha1.Operation, options render.Options) (int, error) {
-		if operationBool(op, "live") {
+		if operationBool(op, "live") || operationBool(op, "service") {
 			if options.Format != render.FormatTable && options.Format != render.FormatWide {
-				return 2, apperror.New(v1alpha1.ErrorInvalidArgument, "--live supports table and wide output; omit --live for bounded JSON or YAML output")
+				return 2, apperror.New(v1alpha1.ErrorInvalidArgument, "--live and --service support table and wide output")
 			}
 			first := true
 			last, emitted, streamErr := operationExecutor.ExecuteStream(ctx, op, func(snapshot v1alpha1.Result) error {
