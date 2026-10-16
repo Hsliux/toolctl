@@ -51,6 +51,9 @@ func classifyPCI(vendorID, subsystemID string) (string, string) {
 		return "Dell", "perccli"
 	}
 	if subsystemID == "103c" {
+		if vendorID == "1000" || vendorID == "14e4" {
+			return "HPE MR (Broadcom/LSI)", "storcli"
+		}
 		return "HPE", "ssacli"
 	}
 	switch vendorID {

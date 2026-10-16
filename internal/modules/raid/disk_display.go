@@ -26,6 +26,9 @@ func physicalDiskLocation(d Disk) string {
 
 // Physical role and readiness are separate from the aggregate health model.
 func physicalDiskStatus(d Disk) string {
+	if strings.TrimSpace(d.VendorState) == "" && d.Status != "" {
+		return d.Status
+	}
 	state := strings.ToLower(strings.TrimSpace(d.VendorState))
 	if prefix, _, ok := strings.Cut(state, ","); ok {
 		state = strings.TrimSpace(prefix)
@@ -56,6 +59,9 @@ func physicalDiskStatus(d Disk) string {
 	}
 	if d.State == HealthOptimal {
 		return "online"
+	}
+	if d.State == "" {
+		return "unknown"
 	}
 	return string(d.State)
 }

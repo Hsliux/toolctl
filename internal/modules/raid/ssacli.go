@@ -87,6 +87,13 @@ func parseSSACLI(data []byte) (vendorInventory, error) {
 				controller.Serial = value
 			case "firmware version":
 				controller.Firmware = value
+			case "pci address", "pci address (domain:bus:device.function)":
+				if address := pciToken.FindString(value); address != "" {
+					if strings.Count(address, ":") == 1 {
+						address = "0000:" + address
+					}
+					controller.PCIAddress = strings.ToLower(address)
+				}
 			}
 		case "volume":
 			volume := &inventory.Volumes[volumeIndex]
@@ -126,8 +133,15 @@ func parseSSACLI(data []byte) (vendorInventory, error) {
 			case "firmware revision":
 				disk.Firmware = value
 			case "current temperature (c)":
-				if temperature, err := strconv.ParseFloat(strings.Fields(value)[0], 64); err == nil {
-					disk.TemperatureC = &temperature
+				if number := megaTemperature.FindString(value); number != "" {
+					if temperature, err := strconv.ParseFloat(number, 64); err == nil {
+						disk.TemperatureC = &temperature
+					}
+				}
+			case "predictive failure":
+				if strings.EqualFold(value, "yes") || strings.EqualFold(value, "no") {
+					failed := strings.EqualFold(value, "yes")
+					disk.PredictiveFailure = &failed
 				}
 			}
 		}
@@ -139,8 +153,22 @@ func parseSSACLI(data []byte) (vendorInventory, error) {
 }
 
 func splitVendorField(line string) (string, string, bool) {
-	key, value, ok := strings.Cut(line, ":")
-	return strings.TrimSpace(key), strings.TrimSpace(value), ok
+	depth := 0
+	for i, ch := range line {
+		switch ch {
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		case ':':
+			if depth == 0 {
+				return strings.TrimSpace(line[:i]), strings.TrimSpace(line[i+1:]), true
+			}
+		}
+	}
+	return "", "", false
 }
 
 func normalizeSSARaid(value string) string {

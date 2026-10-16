@@ -19,6 +19,9 @@ type Member struct {
 	Volume     string `json:"volume"`
 	RAIDLevel  string `json:"raidLevel"`
 	Span       string `json:"span,omitempty"`
+	Arm        string `json:"arm,omitempty"`
+	DiskGroup  string `json:"diskGroup,omitempty"`
+	Address    string `json:"address,omitempty"`
 	Disk
 }
 
@@ -29,6 +32,8 @@ func memberColumns() []v1alpha1.ColumnHint {
 	}{
 		{"CONTROLLER", "controller", false}, {"VOLUME", "volume", false}, {"RAID", "raidLevel", false}, {"SPAN", "span", false},
 		{"ENCLOSURE", "enclosure", false}, {"SLOT", "slot", false}, {"DEVICE ID", "id", false}, {"STATUS", "status", false},
+		{"ADDRESS", "address", false},
+		{"DG", "diskGroup", true}, {"ARM", "arm", true}, {"ROLE", "role", true},
 		{"MODEL", "model", true}, {"SERIAL", "serial", true}, {"BACKEND", "backend", true}, {"MEGACLI ARGS", "megacliArgs", true},
 	}
 	columns := []v1alpha1.ColumnHint{}
@@ -39,6 +44,10 @@ func memberColumns() []v1alpha1.ColumnHint {
 }
 
 func (r *Runner) members(ctx context.Context) (core.RunOutput, error) {
+	return r.membersFor(ctx, selection{})
+}
+
+func (r *Runner) membersFor(ctx context.Context, s selection) (core.RunOutput, error) {
 	out := core.RunOutput{Items: []v1alpha1.Item{}, Warnings: []v1alpha1.Diagnostic{}, Errors: []v1alpha1.TargetError{}}
 	rows := []Member{}
 	controllers, err := discoverControllers(r.deps.Files)
@@ -49,6 +58,9 @@ func (r *Runner) members(ctx context.Context) (core.RunOutput, error) {
 	seen := map[string]bool{}
 	for _, controller := range controllers {
 		backend, binary, _ := discoverBackendTool(r.deps.Processes, controller.Backend, configured)
+		if s.backend != "" && s.backend != backend {
+			continue
+		}
 		if seen[backend] {
 			continue
 		}
@@ -61,6 +73,7 @@ func (r *Runner) members(ctx context.Context) (core.RunOutput, error) {
 			args = []string{"-LdPdInfo", "-aALL", "-NoLog"}
 		case "storcli", "perccli":
 			args = []string{"/call", "show", "all", "J"}
+		case "arcconf", "ssacli":
 		default:
 			queryErr = fmt.Errorf("RAID member mapping is not supported for backend %s", backend)
 		}
@@ -69,22 +82,42 @@ func (r *Runner) members(ctx context.Context) (core.RunOutput, error) {
 				queryErr = fmt.Errorf("%s management tool is unavailable; run toolctl raid doctor", backend)
 			} else if !architectureCompatible(binary, r.deps.Architecture) {
 				queryErr = fmt.Errorf("%s tool architecture mismatch", backend)
+			} else if backend == "arcconf" {
+				part, queryErr = r.arcconfMembers(ctx, binary)
+			} else if backend == "ssacli" {
+				var data []byte
+				data, queryErr = r.memberQuery(ctx, binary, []string{"ctrl", "all", "show", "config", "detail"})
+				if queryErr == nil {
+					part, queryErr = parseSSACLIMembers(data)
+				}
 			} else {
-				res := r.deps.Processes.Run(ctx, core.ProcessSpec{Path: binary, Args: args, Env: []string{"LC_ALL=C", "LANG=C"}, MaxStdout: 16 << 20, MaxStderr: 1 << 20})
-				if res.Err != nil || res.ExitCode != 0 || res.TimedOut || res.StdoutExceeded {
-					queryErr = fmt.Errorf("%s member query failed: %s", backend, processMessage(res))
-				} else if backend == "megacli" {
-					part, queryErr = parseMegaCLIMembers(res.Stdout)
-				} else {
-					part, queryErr = parseStorCLIMembers(res.Stdout, backend)
+				var data []byte
+				data, queryErr = r.memberQuery(ctx, binary, args)
+				if queryErr == nil {
+					if backend == "megacli" {
+						part, queryErr = parseMegaCLIMembers(data)
+					} else {
+						part, queryErr = parseStorCLIMembers(data, backend)
+					}
+				}
+				if backend == "megacli" && queryErr != nil && ctx.Err() == nil {
+					firstErr := queryErr
+					var data []byte
+					data, queryErr = r.memberQuery(ctx, binary, []string{"-CfgDsply", "-aALL", "-NoLog"})
+					if queryErr == nil {
+						part, queryErr = parseMegaCLIConfigMembers(data)
+					}
+					if queryErr != nil {
+						queryErr = fmt.Errorf("LdPdInfo: %v; CfgDsply fallback: %w", firstErr, queryErr)
+					}
 				}
 			}
 		}
+		rows = append(rows, part...)
 		if queryErr != nil {
-			out.Errors = append(out.Errors, v1alpha1.TargetError{Code: v1alpha1.ErrorExecutionFailed, Message: queryErr.Error()})
+			out.Errors = append(out.Errors, v1alpha1.TargetError{Target: backend, Code: v1alpha1.ErrorExecutionFailed, Message: queryErr.Error()})
 			continue
 		}
-		rows = append(rows, part...)
 	}
 	rows = append(rows, collectMDMembers(r.deps.Files)...)
 	sort.SliceStable(rows, func(i, j int) bool {
@@ -101,6 +134,10 @@ func (r *Runner) members(ctx context.Context) (core.RunOutput, error) {
 		return diskLess(a.Disk, b.Disk)
 	})
 	for _, m := range rows {
+		m.Role = "member"
+		if m.Backend == "mdraid" && m.Status == "spare" {
+			m.Role = "spare"
+		}
 		m.Disk.Controller = m.Controller
 		m.Location = physicalDiskLocation(m.Disk)
 		m.MegaCLIArgs = megaCLISelector(m.Disk)
@@ -176,7 +213,23 @@ func parseMegaCLIMembers(data []byte) ([]Member, error) {
 			if i < len(positions) {
 				span = positions[i]
 			}
-			rows = append(rows, Member{Controller: controller, Volume: volume, RAIDLevel: raid, Span: span, Disk: d})
+			group, arm := "", ""
+			current := -1
+			for _, line := range lines {
+				key, _, ok := splitVendorField(line)
+				if ok && strings.EqualFold(key, "Enclosure Device ID") {
+					current++
+				}
+				if current == i {
+					if m := megaGroup.FindStringSubmatch(line); len(m) == 2 {
+						group = m[1]
+					}
+					if m := megaArm.FindStringSubmatch(line); len(m) == 2 {
+						arm = m[1]
+					}
+				}
+			}
+			rows = append(rows, Member{Controller: controller, Volume: volume, RAIDLevel: raid, Span: span, Arm: arm, DiskGroup: group, Disk: d})
 		}
 		return nil
 	}
@@ -215,6 +268,8 @@ func parseMegaCLIMembers(data []byte) ([]Member, error) {
 }
 
 var megaSpan = regexp.MustCompile(`(?i)Span:\s*([0-9]+)`)
+var megaArm = regexp.MustCompile(`(?i)Arm:\s*([0-9]+)`)
+var megaGroup = regexp.MustCompile(`(?i)DiskGroup:\s*([0-9]+)`)
 
 func parseStorCLIMembers(data []byte, backend string) ([]Member, error) {
 	var doc map[string]any
@@ -248,6 +303,7 @@ func parseStorCLIMembers(data []byte, backend string) ([]Member, error) {
 				return nil, fmt.Errorf("missing DG/VD member mapping")
 			}
 			matched := false
+			locations := map[string]bool{}
 			for _, pd := range rowsValue(response, "PD LIST") {
 				if stringValue(pd, "DG") != group {
 					continue
@@ -258,7 +314,52 @@ func parseStorCLIMembers(data []byte, backend string) ([]Member, error) {
 				}
 				d := Disk{Controller: controller, Enclosure: enclosure, Slot: slot, ID: stringValue(pd, "DID"), VendorState: stringValue(pd, "State"), Backend: backend, Model: stringValue(pd, "Model"), SizeBytes: parseVendorSize(stringValue(pd, "Size"))}
 				d.State = normalizeHealth(d.VendorState)
-				rows = append(rows, Member{Controller: controller, Volume: volume, RAIDLevel: stringValue(vd, "TYPE"), Disk: d})
+				span, arm := "", ""
+				for _, t := range rowsValue(response, "TOPOLOGY") {
+					if stringValue(t, "DG") == group && ((d.ID != "" && stringValue(t, "DID") == d.ID) || firstNonEmpty(stringValue(t, "EID:Slot"), stringValue(t, "EID:Slt")) == physicalDiskLocation(d)) {
+						span = stringValue(t, "Arr")
+						arm = stringValue(t, "Row")
+						if span == "-" {
+							span = ""
+						}
+						if arm == "-" {
+							arm = ""
+						}
+					}
+				}
+				rows = append(rows, Member{Controller: controller, Volume: volume, DiskGroup: group, Span: span, Arm: arm, RAIDLevel: stringValue(vd, "TYPE"), Disk: d})
+				locations[physicalDiskLocation(d)] = true
+				matched = true
+			}
+			for _, t := range rowsValue(response, "TOPOLOGY") {
+				if stringValue(t, "DG") != group {
+					continue
+				}
+				state := stringValue(t, "State")
+				if physicalDiskStatus(Disk{VendorState: state}) != "missing" {
+					continue
+				}
+				loc := firstNonEmpty(stringValue(t, "EID:Slot"), stringValue(t, "EID:Slt"))
+				if locations[loc] {
+					continue
+				}
+				enclosure, slot, ok := strings.Cut(loc, ":")
+				if !ok {
+					enclosure = ""
+					slot = ""
+				}
+				span, arm := stringValue(t, "Arr"), stringValue(t, "Row")
+				if span == "-" {
+					span = ""
+				}
+				if arm == "-" {
+					arm = ""
+				}
+				id := stringValue(t, "DID")
+				if id == "" || id == "-" {
+					id = "missing-" + group + "-" + span + "-" + arm
+				}
+				rows = append(rows, Member{Controller: controller, Volume: volume, DiskGroup: group, Span: span, Arm: arm, RAIDLevel: stringValue(vd, "TYPE"), Disk: Disk{Controller: controller, Backend: backend, ID: id, Enclosure: enclosure, Slot: slot, State: HealthFailed, VendorState: state}})
 				matched = true
 			}
 			if !matched {

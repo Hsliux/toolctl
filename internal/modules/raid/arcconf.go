@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"toolctl/internal/core"
 )
 
 var (
-	arcControllerID = regexp.MustCompile(`(?i)controller\s+([0-9]+)`)
+	arcControllerID = regexp.MustCompile(`(?i)controller\s+#?([0-9]+)`)
 	arcLogicalID    = regexp.MustCompile(`(?i)^logical\s+device\s+number\s+([0-9]+)`)
 	arcDeviceID     = regexp.MustCompile(`(?i)^device\s+#?([0-9]+)`)
 	arcLocation     = regexp.MustCompile(`(?i)enclosure\s+([^,]+),\s*slot\s+([^,\s]+)`)
@@ -132,6 +133,17 @@ func parseArcconf(data []byte, controllerID string) (vendorInventory, error) {
 			switch key {
 			case "state":
 				disk.VendorState, disk.State = value, normalizeHealth(value)
+			case "s.m.a.r.t. warnings", "smart warnings":
+				if n := vendorUint(value); n != nil {
+					failed := *n > 0
+					disk.PredictiveFailure = &failed
+				}
+			case "temperature", "temperature (c)":
+				if n := megaTemperature.FindString(value); n != "" {
+					if temp, e := strconv.ParseFloat(n, 64); e == nil {
+						disk.TemperatureC = &temp
+					}
+				}
 			case "reported channel,device(t:l)":
 				location := strings.Split(value, "(")[0]
 				parts := strings.Split(location, ",")

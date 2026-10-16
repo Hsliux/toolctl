@@ -145,7 +145,7 @@ toolctl top [cpu|mem|io]
 toolctl disk health
 toolctl perf doctor|cpu|io|net|tcp retrans
 toolctl perf history doctor|cpu|io|net|tcp retrans
-toolctl raid doctor|status|controllers|volumes|disks
+toolctl raid doctor|status|controllers|volumes|disks|members|tasks|health|events|locate|setup
 toolctl init raid
 toolctl mysql
 toolctl redis
@@ -404,7 +404,7 @@ toolctl perf history tcp retrans --range 6h -i 15m
 
 ## RAID
 
-RAID 使用统一数据模型，并按控制器选择 backend。v1 支持无外部依赖的 Linux MD，以及 `storcli`、`megacli`、`perccli`、`ssacli` 和 `arcconf`。Broadcom/LSI 控制器优先使用 StorCLI，未安装时自动回退到旧版 MegaCLI。所有 RAID 查询均为只读。
+RAID 使用统一数据模型，并按控制器选择 backend。v1 支持无外部依赖的 Linux MD，以及 `storcli`、`megacli`、`perccli`、`ssacli` 和 `arcconf`。Broadcom/LSI 控制器优先使用 StorCLI，未安装时自动回退到旧版 MegaCLI。普通 RAID 查询均为只读，定位灯操作仅在显式指定 `--service` 或执行 `raid locate` 时发生。
 
 ### `toolctl raid`
 
@@ -468,6 +468,10 @@ toolctl raid volumes -o wide
 toolctl raid disks
 toolctl raid disks -o wide
 toolctl raid disks -o json
+# 只查看异常盘，不点灯
+toolctl raid disks --abnormal
+# 只查看指定逻辑盘
+toolctl raid disks --controller 0 --volume 1
 ```
 
 这是定位“哪个槽位的哪块盘异常”的主要入口。可见字段取决于厂商工具能提供的清单。
@@ -491,11 +495,11 @@ toolctl raid disks --service
 toolctl raid --service
 ```
 
-仅显示 failed、offline、missing、unconfigured-bad、degraded、rebuilding、unknown 及预测故障告警的磁盘。交接字段包含主机、控制器、背板、厂商槽位、状态、型号/Inquiry、可用的序列号与定位灯结果，可复制给机房人员。重建中的盘明确提示勿拔盘；异常清单不代表全部可以直接拔出更换。MegaCLI Inquiry 原文可能包含型号和序列号的混合文本，未取得独立序列号时显示“未提供”。
+仅显示 failed、offline、missing、unconfigured-bad、degraded、rebuilding、unknown 及预测故障告警的磁盘。磁盘清单合并成员映射中明确报告的 missing 成员，交接字段包含主机、所属逻辑盘、RAID 类型、控制器、背板、厂商槽位、状态、型号/Inquiry、可用的序列号与定位灯结果，可复制给机房人员。支持 `--backend`、`--controller`、`--volume` 筛选，筛选在点灯前完成。重建中的盘明确提示勿拔盘；异常清单不代表全部可以直接拔出更换。MegaCLI Inquiry 原文可能包含型号和序列号的混合文本，未取得独立序列号时显示“未提供”。
 
-MegaCLI、StorCLI、PERCCLI 后端使用厂商的 locate 指令点灯，立即展示清单，前台等待 10 分钟后发送关灯指令；Ctrl+C 或 SIGTERM 会提前执行关灯清理。普通查询不操作定位灯。该模式仅支持 table/wide，工具调用单次有超时限制，等待不受普通查询默认 30 秒超时影响。
+MegaCLI、StorCLI、PERCCLI、Arcconf、SSA CLI 后端使用厂商的 locate/identify/LED 指令点灯，展示清单后前台等待 10 分钟，再发送关灯指令；Ctrl+C 或 SIGTERM 会提前执行关灯清理。普通查询不操作定位灯。该模式仅支持 table/wide，工具调用单次有超时限制，等待不受普通查询默认 30 秒超时影响。
 
-其他后端、地址缺失或点灯失败时显示 `unavailable` 并报告原因，不能认为灯已亮。关灯失败显示 `stop-failed` 并报错。进程被 SIGKILL、主机断电等情况无法执行清理，必要时手工关灯，例如：
+已缺失的磁盘显示 `unavailable-missing`，不会尝试点灯；厂商未报告槽位时保留未知。其他后端、地址缺失或点灯失败时显示 `unavailable` 并报告原因，不能认为灯已亮。关灯失败显示 `stop-failed` 并报错（包括 Ctrl+C 清理失败）。进程被 SIGKILL、主机断电等情况无法执行清理，必要时手工关灯，例如：
 
 ```bash
 /opt/MegaRAID/MegaCli/MegaCli64 -PDLocate -stop -physdrv '[1:2]' -a0
@@ -511,6 +515,8 @@ MegaCLI、StorCLI、PERCCLI 后端使用厂商的 locate 指令点灯，立即�
 toolctl raid members
 toolctl raid members -o wide
 toolctl raid members -o json
+toolctl raid members --controller 0 --volume 1
+toolctl raid members --abnormal
 ```
 
 ```text
@@ -522,9 +528,89 @@ CONTROLLER  VOLUME  RAID     SPAN  ENCLOSURE  SLOT  DEVICE ID  STATUS
 0           1       RAID 1   -     1          0     14         online
 ```
 
-按 backend、控制器、逻辑盘和槽位排序。MegaCLI 直接解析 `-LdPdInfo -aALL -NoLog`，通过逻辑盘内的物理盘段确定成员；Span Depth 大于 1 时将 RAID1/5/6 分别标为 RAID10/50/60，SPAN 仅在厂商报告时显示。StorCLI/PERCCLI 根据同一次查询的 `VD LIST` 与 `PD LIST` 中的 Disk Group 关联，一个 Disk Group 上的多个逻辑盘会共享成员清单。未分配盘不会被当作逻辑盘成员。Linux MD 根据 `/proc/mdstat` 列出成员设备路径及 failed/spare 状态，不生成硬件槽位。`-o wide` 额外显示 backend、型号、序列号及可用的 MegaCLI 定位参数。
+按 backend、控制器、逻辑盘和槽位排序。MegaCLI 直接解析 `-LdPdInfo -aALL -NoLog`，兼容 `Virtual Drive` / `Virtual Disk` 和不同 Adapter 标题。无法取得映射时自动回退 `-CfgDsply -aALL -NoLog`，按 DISK GROUP 下的逻辑盘及物理盘关联；两次均失败时保留各自的错误。Span Depth 大于 1 时将 RAID1/5/6 分别标为 RAID10/50/60，SPAN 仅在厂商明确报告时显示。Dell PERC 可回退到已登记或已安装的 StorCLI/MegaCLI。
 
-当前 SSA CLI、Arcconf 成员映射未实现，会明确报告不支持；工具缺失、查询失败或无法确定成员关系会报告错误，避免将未知关系显示为空的成功结果。该命令只读，不操作定位灯或 RAID 配置。
+StorCLI/PERCCLI 根据同一次查询的 `VD LIST` 与 `PD LIST` 中的 Disk Group 关联。SSA CLI 根据 controller/array 层级将逻辑盘与物理盘关联，排除备用盘和 unassigned 区域；同一 array/group 上的多个逻辑盘共享成员清单。
+
+Arcconf 自动列出控制器（LIST，不兼容时尝试 GETVERSION），逐个执行 `GETCONFIG <id> AL nologs`，通过 Logical Device 的 Group/Segment、channel/device 或序列号匹配物理盘。兼容旧版 `(0,1)`、新版 `Channel:0,Device:1`、`Connector:0,Device:1` 段格式。`ADDRESS` 显示传输地址，只有厂商明确报告 Enclosure/Slot 时才填写槽位；缺失成员标为 missing，不推测其物理槽位。
+
+Linux MD 根据 `/proc/mdstat` 列出成员设备路径及 failed/spare 状态，不生成硬件槽位。`-o wide` 额外显示 DG/array、ARM、ROLE、backend、型号、序列号及可用的 MegaCLI 定位参数。DG、SPAN、ARM 只在厂商明确报告时填写。磁盘清单的 wide 输出提供 ROLE 和 VOLUMES；角色区分成员盘、热备盘、未分配盘和未知。工具缺失、查询失败或无法确定成员关系会报告错误。该命令只读，不操作定位灯或 RAID 配置。
+
+### `toolctl raid locate`
+
+独立定位一块物理盘，默认在前台保持定位灯 10 分钟。输入必须匹配唯一磁盘；重复控制器编号可通过 `--backend` 消歧。点灯成功由厂商命令反馈确认，实际灯效由硬件决定。
+
+```bash
+# MegaCLI / StorCLI / PERCCLI，使用原始 enclosure 和 slot
+toolctl raid locate --controller 0 --enclosure 1 --slot 2
+# 自定义时间
+toolctl raid locate --controller 0 --enclosure 1 --slot 2 --duration 2m
+# 立即关闭指定盘的定位灯
+toolctl raid locate --backend megacli --controller 0 --enclosure 1 --slot 2 --stop
+# Arcconf 使用 channel:device 地址；SSA CLI 使用 port:box:bay 地址
+toolctl raid locate --backend arcconf --controller 1 --device 0:2
+toolctl raid locate --backend ssacli --controller 0 --device 1I:1:2
+```
+
+指定时间范围为 1 秒到 24 小时。支持 Ctrl+C 提前关灯；仅支持 table/wide。默认开始操作会核对物理盘清单；若磁盘已消失，仍可通过显式 `--backend` 加完整地址执行 `--stop`。该命令只控制定位灯，不改变磁盘 online/offline 状态，不创建、删除或重建阵列。
+
+### `toolctl raid tasks`
+
+查询后台重建、初始化和一致性检查等任务。进度来自厂商报告；缺少百分比显示未知，不填充为 0%。
+
+```bash
+toolctl raid tasks
+toolctl raid tasks --controller 0
+toolctl raid tasks -l           # 默认每 5 秒刷新，Ctrl+C 结束
+toolctl raid tasks -l -i 10s
+toolctl raid tasks -o json
+```
+
+MegaCLI 查询重建盘的 PDRbld ShowProg，以及逻辑盘的 LDInit/LDCC/LDBI ShowProg；StorCLI/PERCCLI 查询 rebuild/init/cc/bgi；Arcconf 使用 GETSTATUS。SSA CLI 提取 config detail 中明确报告的任务字段，未提供时显示 `not-reported`，不能视为无任务。Linux MD 读取 sysfs 的 sync_action/sync_completed。仅当厂商明确报告无任务时显示 idle。旧工具版本不支持某项查询时报告该项错误，保留其他成功结果。live 只支持 table/wide，每次查询有 30 秒上限。
+
+### `toolctl raid health`
+
+```bash
+toolctl raid health
+toolctl raid health --controller 0
+toolctl raid health -o json
+```
+
+逐盘显示状态、预测故障标志、介质/其他错误计数与温度，并查询缓存策略和电池/电容保护相关证据。温度原值显示，不擅自设定跨厂商统一阈值。缓存字段保留厂商原文，`observed` 表示取得数据，不代表健康通过；明确的 Failed/Degraded/Not OK、需要更换电池等情况标为 warn。没有提供的数据保留 `unknown` / `not-reported`，未安装或不可查询的 BBU/CacheVault 显示 unavailable，不当作电池故障。
+
+MegaCLI 使用 PDList、AdpBbuCmd 和 LDInfo；StorCLI/PERCCLI 读取详细物理盘、BBU/CacheVault 和逻辑盘信息；Arcconf/SSA CLI 提取配置中的 SMART/温度/缓存保护字段。各后端能提供的指标不同。
+
+### `toolctl raid events`
+
+```bash
+toolctl raid events                   # 默认每个控制器最多 20 条
+toolctl raid events -c 50
+toolctl raid events --controller 0 -o json
+```
+
+支持 MegaCLI、StorCLI/PERCCLI、Arcconf、SSA CLI 和 Linux MD。`SOURCE` 明确标注来源：`controller` 为厂商控制器事件；`ssacli-diagnostic` 为 SSA 诊断包中已识别的结构化事件；`kernel-journal` / `kernel-dmesg` 为当前启动的内核记录。内核记录不等于完整固件历史。
+
+SSA CLI 按 HPE 的诊断接口执行 `ctrl slot=<id> diag logs=on file=<临时文件.zip>`，诊断阶段最多 10 秒。直接读取压缩包内受支持的 JSON、XML 或文本事件，不解压到用户目录；压缩包限制 64 MiB、最多 1024 个条目，文本读取/解压总量限制 16 MiB。重复事件会去重。导出失败或格式无法识别时，自动回退当前启动的内核日志，并保留说明。
+
+内核日志优先使用系统已安装的 `journalctl`，无法读取时尝试 `dmesg`；不会安装服务、清空日志。SSA 按已确认的 PCI 地址关联控制器，不能按多控制器返回顺序猜测；地址不明且存在多张卡时明确报告无法关联。Linux MD 按已检测到的阵列设备名过滤。无工具、无读取权限、输出超过限制等情况返回错误，不把它显示为“没有事件”。
+
+按完整事件记录取条数，序列号完整时按序列倒序，否则在时间戳完整时按时间倒序；无法可靠排序会保留来源顺序并提示。`dmesg` 使用启动后相对时间（例如 `boot+12.3s`），按内核缓冲区的新旧顺序显示，不伪造日历时间。
+
+厂商要求文件输出时使用临时目录，限制日志读取大小并自动清理。不会清空控制器日志。`--count/-c` 范围为 1 到 1000；未识别的事件格式会提示，不能理解为没有发生过事件。
+
+### RAID 后端能力
+
+| 后端 | 成员查询 | 定位灯 | 任务/进度 | 磁盘与缓存健康 | 事件 |
+| --- | --- | --- | --- | --- | --- |
+| MegaCLI | 支持，含配置查询回退 | 支持 | 支持，取决于工具版本 | 支持，缺失指标保留未知 | 支持 |
+| StorCLI / PERCCLI | 支持 | 支持 | 支持，取决于工具版本 | 支持，BBU/CacheVault 可选 | 支持 |
+| Arcconf | 支持 | 支持，按 channel/device | GETSTATUS | 按厂商提供字段展示 | 支持 tabular |
+| SSA CLI | 支持，按 array | 支持，按 port:box:bay | 仅明确报告的字段 | 按厂商提供字段展示 | 诊断包事件；必要时回退内核 |
+| Linux MD | 支持，设备路径 | 无硬件定位灯接口 | sysfs | 阵列状态，无硬件电池/缓存 | 当前启动的内核记录 |
+
+`toolctl raid doctor -o wide` 的 MEMBERS/LOCATE 列表示适配器已实现相应能力，EVENT SOURCES 表示可尝试的事件来源；AVAILABLE 表示 RAID 工具是否可用，不保证具体控制器和背板支持灯效，也不代表已经取得内核日志读取权限。HPE MR（Broadcom/MegaRAID）按实际 PCI 厂商选择 StorCLI，HPE Smart Array/SR 使用 SSA CLI。
+
+控制器发现/成员/清单查询不完整时，命令保留成功取得的结果，同时通过 `errors` 和非零退出码报告失败；多控制器中某一张查询失败不会吞掉其他卡已取得的成员。显式 backend/controller/volume 选择没有匹配资源时返回参数错误；仅因 `--abnormal` 筛掉正常盘而没有行属于正常情况。未检测到 RAID 时会明确提示，而非默认为健康。
 
 ### `toolctl raid setup`（兼容 `toolctl init raid`）
 

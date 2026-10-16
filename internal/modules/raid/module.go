@@ -53,6 +53,9 @@ func (*Module) Capabilities() []v1alpha1.Capability {
 			{Header: "PATH", Path: "data.toolPath", Type: v1alpha1.ColumnString, Wide: true, Order: 90},
 			{Header: "SCOPE", Path: "data.scope", Type: v1alpha1.ColumnString, Wide: true, Order: 100},
 			{Header: "CONFIG", Path: "data.configPath", Type: v1alpha1.ColumnString, Wide: true, Order: 110},
+			{Header: "MEMBERS", Path: "data.membersSupported", Type: v1alpha1.ColumnBoolean, Wide: true, Order: 120},
+			{Header: "LOCATE", Path: "data.locateSupported", Type: v1alpha1.ColumnBoolean, Wide: true, Order: 130},
+			{Header: "EVENT SOURCES", Path: "data.eventSources", Type: v1alpha1.ColumnString, Wide: true, Order: 140},
 		}},
 		{ID: capabilityStatus, Domain: "raid", Resource: "status", Verb: "get", Command: v1alpha1.CommandPathSpec{Path: []string{"raid", "status"}}, Summary: "Show aggregate RAID health", Columns: []v1alpha1.ColumnHint{
 			{Header: "HEALTH", Path: "data.health", Type: v1alpha1.ColumnString, Order: 10},
@@ -87,6 +90,8 @@ func (*Module) Capabilities() []v1alpha1.Capability {
 			{Header: "ENCLOSURE", Path: "data.enclosure", Type: v1alpha1.ColumnString, Order: 15},
 			{Header: "INTERFACE", Path: "data.interface", Type: v1alpha1.ColumnString, Wide: true, Order: 70}, {Header: "MODEL", Path: "data.model", Type: v1alpha1.ColumnString, Wide: true, Order: 80},
 			{Header: "SERIAL", Path: "data.serial", Type: v1alpha1.ColumnString, Wide: true, Order: 85},
+			{Header: "ROLE", Path: "data.role", Type: v1alpha1.ColumnString, Wide: true, Order: 86},
+			{Header: "VOLUMES", Path: "data.volumes", Type: v1alpha1.ColumnString, Wide: true, Order: 87},
 			{Header: "BACKEND", Path: "data.backend", Type: v1alpha1.ColumnString, Wide: true, Order: 100},
 		}},
 		{ID: capabilityInit, Domain: "raid", Resource: "configuration", Verb: "init", Command: v1alpha1.CommandPathSpec{Path: []string{"raid", "setup"}, Aliases: [][]string{{"init", "raid"}}}, Summary: "Save an installed tool path (optional; does not initialize RAID arrays)", Mutating: true, Options: []v1alpha1.OptionSpec{
@@ -98,7 +103,22 @@ func (*Module) Capabilities() []v1alpha1.Capability {
 			{Header: "SCOPE", Path: "data.scope", Type: v1alpha1.ColumnString, Order: 30}, {Header: "CONFIG", Path: "data.configPath", Type: v1alpha1.ColumnString, Wide: true, Order: 40},
 		}},
 	}
+	capabilities = append(capabilities, operationCapabilities()...)
 	for i := range capabilities {
+		if capabilities[i].ID != capabilityInit && capabilities[i].ID != capabilityDoctor {
+			capabilities[i].Options = append(capabilities[i].Options, stringFlag("backend", "Select one RAID backend"))
+		}
+		switch capabilities[i].ID {
+		case capabilityOverview, capabilityDisks, capabilityMembers, capabilityVolumes, capabilityControllers, capabilityStatus, capabilityTasks, capabilityHealth, capabilityEvents:
+			capabilities[i].Options = append(capabilities[i].Options, stringFlag("controller", "Filter by vendor controller ID"))
+		}
+		switch capabilities[i].ID {
+		case capabilityOverview, capabilityDisks, capabilityMembers, capabilityVolumes:
+			capabilities[i].Options = append(capabilities[i].Options, stringFlag("volume", "Filter by virtual-drive ID"))
+		}
+		if capabilities[i].ID == capabilityDisks || capabilities[i].ID == capabilityMembers {
+			capabilities[i].Options = append(capabilities[i].Options, v1alpha1.OptionSpec{Name: "abnormal", Type: v1alpha1.OptionBool, Description: "Only show abnormal disks (does not operate locators)"})
+		}
 		if capabilities[i].ID == capabilityOverview || capabilities[i].ID == capabilityDisks {
 			capabilities[i].Options = append(capabilities[i].Options, v1alpha1.OptionSpec{Name: "service", Type: v1alpha1.OptionBool, Description: "Show abnormal disks for onsite staff; blink supported locate LEDs for 10 minutes (foreground)"})
 		}

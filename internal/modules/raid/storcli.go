@@ -18,7 +18,7 @@ type vendorInventory struct {
 }
 
 func runStorCLI(ctx context.Context, deps core.Dependencies, backend, binary string) (vendorInventory, error) {
-	queries := [][]string{{"/call", "show", "J"}, {"/call/vall", "show", "J"}, {"/call/eall/sall", "show", "J"}}
+	queries := [][]string{{"/call", "show", "J"}, {"/call/vall", "show", "J"}, {"/call/eall/sall", "show", "all", "J"}}
 	inventory := newVendorInventory()
 	for index, args := range queries {
 		result := deps.Processes.Run(ctx, core.ProcessSpec{Path: binary, Args: args, Env: []string{"LC_ALL=C", "LANG=C"}, MaxStdout: 16 << 20, MaxStderr: 1 << 20})
@@ -107,6 +107,7 @@ func parseStorCLI(data []byte, backend string) (vendorInventory, error) {
 		controllerID := firstNonEmpty(stringValue(commandStatus, "Controller"), strconv.Itoa(index))
 		status := stringValue(commandStatus, "Status")
 		if status != "" && !strings.EqualFold(status, "Success") {
+			inventory.Incomplete[backend] = fmt.Sprintf("controller %s: %s", controllerID, firstNonEmpty(stringValue(commandStatus, "Description"), status))
 			continue
 		}
 		response := mapValue(entry, "Response Data")
@@ -137,8 +138,9 @@ func parseStorCLI(data []byte, backend string) (vendorInventory, error) {
 			}
 			identifier := firstNonEmpty(stringValue(row, "DID"), location)
 			vendorState := stringValue(row, "State")
-			inventory.Disks = append(inventory.Disks, Disk{Controller: controller.ID, Enclosure: enclosure, Slot: slot, ID: identifier, State: normalizeHealth(vendorState), VendorState: vendorState, MediaType: stringValue(row, "Med"), Interface: stringValue(row, "Intf"), SizeBytes: parseVendorSize(stringValue(row, "Size")), Model: strings.TrimSpace(stringValue(row, "Model")), Backend: backend})
+			inventory.Disks = append(inventory.Disks, Disk{Controller: controller.ID, Enclosure: enclosure, Slot: slot, ID: identifier, State: normalizeHealth(vendorState), VendorState: vendorState, MediaType: stringValue(row, "Med"), Interface: stringValue(row, "Intf"), SizeBytes: parseVendorSize(stringValue(row, "Size")), Model: strings.TrimSpace(stringValue(row, "Model")), Serial: stringValue(row, "SN"), Backend: backend})
 		}
+		mergeStorDiskDetails(response, controller.ID, backend, &inventory.Disks)
 	}
 	return inventory, nil
 }
@@ -186,11 +188,11 @@ func stringValue(value map[string]any, key string) string {
 func normalizeHealth(value string) Health {
 	compact := strings.ToLower(strings.TrimSpace(value))
 	switch compact {
-	case "opt", "optimal", "onln", "online", "ok", "success", "active", "ready", "rdy":
+	case "opt", "optimal", "onln", "online", "ok", "success", "active", "ready", "rdy", "ghs", "dhs", "hsp", "hotspare", "hot spare", "ugood", "unconfigured(good)", "unconfigured good", "jbod":
 		return HealthOptimal
 	case "dgrd", "degraded", "partially degraded":
 		return HealthDegraded
-	case "failed", "failure", "fail", "critical", "missing":
+	case "failed", "failure", "fail", "critical", "missing", "msng", "ubad", "unconfigured(bad)", "unconfigured bad":
 		return HealthFailed
 	case "rbld", "rebuild", "rebuilding", "recovery", "resync":
 		return HealthRebuilding

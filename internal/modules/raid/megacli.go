@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	megaAdapterHeader = regexp.MustCompile(`(?i)^Adapter\s+#?([0-9]+)(?:\s+--.*)?$`)
-	megaVirtualDrive  = regexp.MustCompile(`(?i)^Virtual Drive:\s*([^\s(]+)`)
+	megaAdapterHeader = regexp.MustCompile(`(?i)^Adapter\s*[:#]?\s*([0-9]+)(?:\s*--.*|\s*:)?$`)
+	megaVirtualDrive  = regexp.MustCompile(`(?i)^Virtual\s+(?:Drive|Disk)\s*:\s*([^\s(]+)`)
 	megaPrimaryRAID   = regexp.MustCompile(`(?i)Primary-([0-9]+)`)
 	megaTemperature   = regexp.MustCompile(`-?[0-9]+(?:\.[0-9]+)?`)
 )
@@ -94,6 +94,7 @@ func parseMegaCLIVolumes(data []byte, inventory *vendorInventory) error {
 		line := strings.TrimSpace(raw)
 		if match := megaAdapterHeader.FindStringSubmatch(line); len(match) == 2 {
 			controller = match[1]
+			volume = -1
 			ensureMegaController(inventory, controller)
 			continue
 		}
@@ -119,6 +120,10 @@ func parseMegaCLIVolumes(data []byte, inventory *vendorInventory) error {
 			item.Name = value
 		case "raid level":
 			item.RAIDLevel = normalizeMegaRAID(value)
+		case "span depth":
+			if depth, err := strconv.Atoi(value); err == nil {
+				item.RAIDLevel = compoundMegaRAID(item.RAIDLevel, depth)
+			}
 		case "size":
 			item.SizeBytes = parseVendorSize(value)
 		case "state":
@@ -137,6 +142,7 @@ func parseMegaCLIDisks(data []byte, inventory *vendorInventory) error {
 		line := strings.TrimSpace(raw)
 		if match := megaAdapterHeader.FindStringSubmatch(line); len(match) == 2 {
 			controller = match[1]
+			disk = -1
 			ensureMegaController(inventory, controller)
 			continue
 		}
@@ -176,6 +182,12 @@ func parseMegaCLIDisks(data []byte, inventory *vendorInventory) error {
 			item.Model = value
 		case "device firmware level":
 			item.Firmware = value
+		case "serial number", "serial no":
+			item.Serial = value
+		case "media error count":
+			item.MediaErrors = vendorUint(value)
+		case "other error count":
+			item.OtherErrors = vendorUint(value)
 		case "drive temperature":
 			if number := megaTemperature.FindString(value); number != "" {
 				if temperature, err := strconv.ParseFloat(number, 64); err == nil {
@@ -220,6 +232,32 @@ func normalizeMegaRAID(value string) string {
 		return "RAID " + match[1]
 	}
 	return strings.TrimSpace(value)
+}
+
+func compoundMegaRAID(level string, depth int) string {
+	if depth > 1 {
+		switch level {
+		case "RAID 1":
+			return "RAID 10"
+		case "RAID 5":
+			return "RAID 50"
+		case "RAID 6":
+			return "RAID 60"
+		}
+	}
+	return level
+}
+
+func vendorUint(value string) *uint64 {
+	fields := strings.Fields(value)
+	if len(fields) == 0 {
+		return nil
+	}
+	n, e := strconv.ParseUint(fields[0], 10, 64)
+	if e != nil {
+		return nil
+	}
+	return &n
 }
 
 func normalizeMegaDiskHealth(value string) Health {

@@ -38,6 +38,11 @@ type Volume struct {
 }
 
 type Disk struct {
+	Role              string   `json:"role,omitempty"`
+	Volumes           []string `json:"volumes,omitempty"`
+	RAIDLevels        []string `json:"raidLevels,omitempty"`
+	MediaErrors       *uint64  `json:"mediaErrors,omitempty"`
+	OtherErrors       *uint64  `json:"otherErrors,omitempty"`
 	MegaCLIArgs       string   `json:"megacliArgs,omitempty"`
 	Host              string   `json:"host,omitempty"`
 	Locate            string   `json:"locate,omitempty"`
@@ -63,19 +68,22 @@ type Disk struct {
 }
 
 type DoctorCheck struct {
-	Controller   string `json:"controller"`
-	Vendor       string `json:"vendor"`
-	Backend      string `json:"backend"`
-	Tool         string `json:"tool,omitempty"`
-	ToolPath     string `json:"toolPath,omitempty"`
-	Scope        string `json:"scope,omitempty"`
-	ConfigPath   string `json:"configPath,omitempty"`
-	Registered   bool   `json:"registered"`
-	Available    bool   `json:"available"`
-	Status       string `json:"status"`
-	Message      string `json:"message"`
-	Suggestion   string `json:"suggestion,omitempty"`
-	Architecture string `json:"architecture"`
+	EventSources     string `json:"eventSources,omitempty"`
+	MembersSupported bool   `json:"membersSupported"`
+	LocateSupported  bool   `json:"locateSupported"`
+	Controller       string `json:"controller"`
+	Vendor           string `json:"vendor"`
+	Backend          string `json:"backend"`
+	Tool             string `json:"tool,omitempty"`
+	ToolPath         string `json:"toolPath,omitempty"`
+	Scope            string `json:"scope,omitempty"`
+	ConfigPath       string `json:"configPath,omitempty"`
+	Registered       bool   `json:"registered"`
+	Available        bool   `json:"available"`
+	Status           string `json:"status"`
+	Message          string `json:"message"`
+	Suggestion       string `json:"suggestion,omitempty"`
+	Architecture     string `json:"architecture"`
 }
 
 type Status struct {

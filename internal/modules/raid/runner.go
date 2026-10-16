@@ -15,15 +15,35 @@ import (
 
 func (r *Runner) Execute(ctx context.Context, op v1alpha1.Operation) (core.RunOutput, error) {
 	switch op.Capability {
+	case capabilityTasks:
+		return r.tasks(ctx, op)
+	case capabilityHealth:
+		return r.health(ctx, op)
+	case capabilityEvents:
+		return r.events(ctx, op)
 	case capabilityMembers:
-		return r.members(ctx)
+		return r.selectedMembers(ctx, op)
 	case capabilityInit:
 		return r.initialize(op)
 	case capabilityDoctor:
 		return r.doctor()
 	case capabilityOverview, capabilityStatus, capabilityControllers, capabilityVolumes, capabilityDisks:
-		inventory, warnings := r.inventory(ctx)
-		return r.inventoryOutput(op.Capability, inventory, warnings)
+		selected, err := parseSelection(op)
+		if err != nil {
+			return core.RunOutput{}, err
+		}
+		var inventory vendorInventory
+		var warnings []v1alpha1.Diagnostic
+		if op.Capability == capabilityControllers {
+			inventory, warnings = r.inventory(ctx)
+		} else {
+			inventory, warnings = r.enrichedInventory(ctx)
+		}
+		base := inventory
+		inventory = filterInventory(inventory, selected)
+		out, e := r.inventoryOutput(op.Capability, inventory, warnings)
+		completeQuery(&out, base, selected)
+		return out, e
 	default:
 		return core.RunOutput{}, fmt.Errorf("raid module does not support %s", op.Capability)
 	}
@@ -175,6 +195,16 @@ func (r *Runner) doctor() (core.RunOutput, error) {
 	}
 	items := []v1alpha1.Item{}
 	for _, check := range checks {
+		check.MembersSupported = check.Backend == "mdraid" || check.Backend == "megacli" || check.Backend == "storcli" || check.Backend == "perccli" || check.Backend == "arcconf" || check.Backend == "ssacli"
+		check.LocateSupported = check.MembersSupported && check.Backend != "mdraid"
+		switch check.Backend {
+		case "ssacli":
+			check.EventSources = "SSA diagnostic; kernel (journalctl/dmesg)"
+		case "mdraid":
+			check.EventSources = "kernel (journalctl/dmesg)"
+		case "storcli", "perccli", "megacli", "arcconf":
+			check.EventSources = "controller"
+		}
 		item, err := resultbuilder.NewItem("RAIDDoctorCheck", check.Controller, "", check)
 		if err != nil {
 			return core.RunOutput{}, err
@@ -263,7 +293,9 @@ func replaceBackendControllers(current []Controller, backend string, replacement
 		if index >= len(native) {
 			break
 		}
-		replacements[index].PCIAddress = firstNonEmpty(replacements[index].PCIAddress, native[index].PCIAddress)
+		if len(native) == 1 && len(replacements) == 1 {
+			replacements[index].PCIAddress = firstNonEmpty(replacements[index].PCIAddress, native[index].PCIAddress)
+		}
 		replacements[index].Vendor = firstNonEmpty(replacements[index].Vendor, native[index].Vendor)
 	}
 	return append(result, replacements...)
@@ -351,7 +383,7 @@ func summarize(inventory vendorInventory) Status {
 		status.Health = HealthDegraded
 	} else if status.Rebuilding > 0 {
 		status.Health = HealthRebuilding
-	} else if known > 0 {
+	} else if known > 0 && known == len(states) {
 		status.Health = HealthOptimal
 	}
 	if !status.InventoryComplete && status.Health == HealthOptimal {

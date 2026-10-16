@@ -315,7 +315,7 @@ func configureLeaf(command *cobra.Command, capability v1alpha1.Capability, cli *
 				return apperror.New(v1alpha1.ErrorInvalidArgument, "--service supports table and wide output")
 			}
 			columns = []v1alpha1.ColumnHint{}
-			for i, field := range []string{"host", "controller", "enclosure", "slot", "status", "locate", "handoff"} {
+			for i, field := range []string{"host", "controller", "volumes", "raidLevels", "enclosure", "slot", "status", "locate", "handoff"} {
 				columns = append(columns, v1alpha1.ColumnHint{Header: strings.ToUpper(field), Path: "data." + field, Type: v1alpha1.ColumnString, Order: i})
 			}
 		}

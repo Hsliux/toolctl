@@ -70,6 +70,9 @@ func discoverBackendTool(processes core.ProcessExecutor, backend string, registe
 	if backend == "storcli" {
 		candidates = append(candidates, "megacli")
 	}
+	if backend == "perccli" {
+		candidates = append(candidates, "storcli", "megacli")
+	}
 	// An explicitly registered fallback is preferred over an automatically
 	// discovered tool so setup has deterministic effect.
 	for _, candidate := range candidates {

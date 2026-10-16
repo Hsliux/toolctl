@@ -65,9 +65,9 @@ func New(info cli.BuildInfo, modules []core.Module, stdout, stderr io.Writer) (*
 	}
 	operationExecutor := executor.New(moduleRegistry, clock)
 	command, err := cli.New(info, moduleRegistry.Capabilities(), ids, func(ctx context.Context, op v1alpha1.Operation, options render.Options) (int, error) {
-		if operationBool(op, "live") || operationBool(op, "service") {
+		if operationBool(op, "live") || operationBool(op, "service") || op.Capability == "raid.disk.locate" {
 			if options.Format != render.FormatTable && options.Format != render.FormatWide {
-				return 2, apperror.New(v1alpha1.ErrorInvalidArgument, "--live and --service support table and wide output")
+				return 2, apperror.New(v1alpha1.ErrorInvalidArgument, "--live, --service and raid locate support table and wide output")
 			}
 			first := true
 			last, emitted, streamErr := operationExecutor.ExecuteStream(ctx, op, func(snapshot v1alpha1.Result) error {
@@ -81,7 +81,10 @@ func New(info cli.BuildInfo, modules []core.Module, stdout, stderr io.Writer) (*
 				return nil
 			})
 			if streamErr != nil {
-				return 1, apperror.Wrap(v1alpha1.ErrorInternal, "render live stream", streamErr)
+				if apperror.Is(streamErr) {
+					return 1, streamErr
+				}
+				return 1, apperror.Wrap(v1alpha1.ErrorExecutionFailed, "stream execution failed: "+streamErr.Error(), streamErr)
 			}
 			if !emitted {
 				return 0, nil
