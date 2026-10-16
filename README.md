@@ -460,6 +460,8 @@ toolctl raid volumes -o wide
 
 ### `toolctl raid disks`
 
+若需查看每个逻辑盘具体由哪些物理盘组成，使用 `toolctl raid members`。
+
 列出 RAID 物理盘，重点显示控制器内可直接定位的完整槽位、设备 ID、状态、容量和介质类型。`-o wide` 额外显示厂商原始 enclosure、slot、接口、型号和序列号。
 
 ```bash
@@ -500,6 +502,29 @@ MegaCLI、StorCLI、PERCCLI 后端使用厂商的 locate 指令点灯，立即�
 ```
 
 现场实际灯效由背板支持决定；当前不会推测厂商槽位与前面板印刷编号的映射，需结合定位灯核对磁盘。
+
+### `toolctl raid members`
+
+查看每个 RAID 逻辑盘的成员盘关系，每行一块成员盘，支持 table、wide、JSON 和 YAML：
+
+```bash
+toolctl raid members
+toolctl raid members -o wide
+toolctl raid members -o json
+```
+
+```text
+CONTROLLER  VOLUME  RAID     SPAN  ENCLOSURE  SLOT  DEVICE ID  STATUS
+0           0       RAID 10  0     252        0     10         online
+0           0       RAID 10  0     252        1     11         failed
+0           0       RAID 10  1     252        2     12         online
+0           0       RAID 10  1     252        3     13         online
+0           1       RAID 1   -     1          0     14         online
+```
+
+按 backend、控制器、逻辑盘和槽位排序。MegaCLI 直接解析 `-LdPdInfo -aALL -NoLog`，通过逻辑盘内的物理盘段确定成员；Span Depth 大于 1 时将 RAID1/5/6 分别标为 RAID10/50/60，SPAN 仅在厂商报告时显示。StorCLI/PERCCLI 根据同一次查询的 `VD LIST` 与 `PD LIST` 中的 Disk Group 关联，一个 Disk Group 上的多个逻辑盘会共享成员清单。未分配盘不会被当作逻辑盘成员。Linux MD 根据 `/proc/mdstat` 列出成员设备路径及 failed/spare 状态，不生成硬件槽位。`-o wide` 额外显示 backend、型号、序列号及可用的 MegaCLI 定位参数。
+
+当前 SSA CLI、Arcconf 成员映射未实现，会明确报告不支持；工具缺失、查询失败或无法确定成员关系会报告错误，避免将未知关系显示为空的成功结果。该命令只读，不操作定位灯或 RAID 配置。
 
 ### `toolctl raid setup`（兼容 `toolctl init raid`）
 

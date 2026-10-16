@@ -16,6 +16,7 @@ const (
 	capabilityControllers = "raid.controller.list"
 	capabilityVolumes     = "raid.volume.list"
 	capabilityDisks       = "raid.disk.list"
+	capabilityMembers     = "raid.member.list"
 	capabilityInit        = "raid.init"
 )
 
@@ -29,6 +30,7 @@ func (*Module) Info() v1alpha1.ModuleInfo {
 
 func (*Module) Capabilities() []v1alpha1.Capability {
 	capabilities := []v1alpha1.Capability{
+		{ID: capabilityMembers, Domain: "raid", Resource: "member", Verb: "list", Command: v1alpha1.CommandPathSpec{Path: []string{"raid", "members"}}, Summary: "List physical disks belonging to each RAID virtual drive", Columns: memberColumns()},
 		{ID: capabilityOverview, Domain: "raid", Resource: "overview", Verb: "get", Command: v1alpha1.CommandPathSpec{Path: []string{"raid"}}, Summary: "Show RAID summary and physical disks; discovers installed tools automatically", Columns: []v1alpha1.ColumnHint{
 			{Header: "TYPE", Path: "data.type", Type: v1alpha1.ColumnString, Order: 10},
 			{Header: "CONTROLLER", Path: "data.controller", Type: v1alpha1.ColumnString, Order: 20},

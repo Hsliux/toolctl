@@ -15,6 +15,8 @@ import (
 
 func (r *Runner) Execute(ctx context.Context, op v1alpha1.Operation) (core.RunOutput, error) {
 	switch op.Capability {
+	case capabilityMembers:
+		return r.members(ctx)
 	case capabilityInit:
 		return r.initialize(op)
 	case capabilityDoctor:
